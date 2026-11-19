@@ -74,7 +74,12 @@ export function PianoRoll({ projectId, version, track, pattern, data, onNoteStep
   const at = (e: MouseEvent<HTMLDivElement>): { step: number; pitch: number } => { const w = where(e); return { step: Math.floor(w.x) + 1, pitch: w.pitch }; };
 
   // Mouse: drag a note to move it, drag its end to change its length.
-  const [drag, setDrag] = useState<Drag | null>(null);
+  // The live drag is in a ref: pointer events can arrive before React re-renders, and a handler that
+  // read stale state would drop the move (and the click after it would move the cursor instead).
+  // The state copy is only for drawing.
+  const [drag, setDragState] = useState<Drag | null>(null);
+  const dragRef = useRef<Drag | null>(null);
+  const setDrag = (d: Drag | null): void => { dragRef.current = d; setDragState(d); };
   const onPointerDown = (e: PointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return;
     const w = where(e);
@@ -86,6 +91,7 @@ export function PianoRoll({ projectId, version, track, pattern, data, onNoteStep
     move(n.step, n.note);
   };
   const onPointerMove = (e: PointerEvent<HTMLDivElement>): void => {
+    const drag = dragRef.current;
     if (!drag) return;
     const w = where(e);
     const next = drag.mode === "move"
@@ -97,6 +103,7 @@ export function PianoRoll({ projectId, version, track, pattern, data, onNoteStep
   /** The click the browser fires after a drag must not move the cursor. */
   const dragged = useRef(false);
   const onPointerUp = (): void => {
+    const drag = dragRef.current;
     if (!drag) return;
     dragged.current = drag.moved;
     setDrag(null);
