@@ -5,6 +5,7 @@
   "exports": { ".": "./src/index.ts" },
   "dependencies": {
     "@circuit-desk/export": "*",
-    "@circuit-desk/ncs": "*"
+    "@circuit-desk/ncs": "*",
+    "@circuit-desk/patch": "*"
   }
 }

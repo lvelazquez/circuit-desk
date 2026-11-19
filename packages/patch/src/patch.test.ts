@@ -79,6 +79,14 @@ describe("patch model", () => {
     expect(parsePatch(out).name).toBe("Bass");
   });
 
+  it("reads a zero-filled name as empty and keeps its bytes on rebuild", () => {
+    const base = initPatchBytes();
+    base.fill(0, 0, 16);
+    const p = parsePatch(base);
+    expect(p.name).toBe("");
+    expect(buildPatch(p, base)).toEqual(base);
+  });
+
   it("rejects values outside the guide's ranges, unknown ids and bad names", () => {
     const base = initPatchBytes();
     expect(() => buildPatch(withValues(initPatch(), { "osc1.wave": 30 }), base)).toThrow(PatchError);

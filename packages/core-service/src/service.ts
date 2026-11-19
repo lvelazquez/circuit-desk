@@ -5,7 +5,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { basename, dirname, join, relative, resolve } from "node:path";
 import * as N from "@circuit-desk/ncs";
 import * as X from "@circuit-desk/export";
+import * as P from "@circuit-desk/patch";
 import { checkWritable, defaultPaths, type DeskPaths } from "./paths.ts";
+import { DEFAULT_FIRMWARE, FIRMWARES, firmwareProfile, type FirmwareId, type FirmwareProfile } from "./firmware.ts";
+
+export interface PackPatchOut { record: number; name: string; category: string; ownSynthData: boolean }
+export interface PackBankOut { bank: number; file: string; patches: PackPatchOut[] }
 
 export const TRACKS = [...N.NOTE_TRACKS, ...N.DRUM_TRACKS] as const;
 export type TrackName = (typeof TRACKS)[number];
@@ -63,7 +68,20 @@ export class ProjectService {
   private nextId = 1;
   private live: X.LiveTemplates | null = null;
 
+  private firmwareId: FirmwareId = DEFAULT_FIRMWARE;
+
   constructor(paths: DeskPaths = defaultPaths()) { this.paths = paths; }
+
+  /** The firmware the user's device runs, and the ones Circuit Desk knows. */
+  firmware(): { current: FirmwareProfile; available: readonly FirmwareProfile[] } {
+    return { current: firmwareProfile(this.firmwareId), available: FIRMWARES };
+  }
+
+  /** Chooses the firmware. It changes validation and preview labels, never the bytes kept. */
+  setFirmware(id: string): FirmwareProfile {
+    try { this.firmwareId = firmwareProfile(id).id; } catch (e) { throw new ServiceError((e as Error).message); }
+    return firmwareProfile(this.firmwareId);
+  }
 
   /** Every .ncs file under `folder` (default: the library), with its name or why it is not a project. */
   listProjects(folder = this.paths.library): ProjectListing[] {
@@ -158,7 +176,11 @@ export class ProjectService {
       swing: { value: header.swing, status: "partial: reads as percent, 50 = none" },
       tracks,
       savedScenes: N.readScenes(p).flatMap((s, e) => (s.saved ? [e + 1] : [])),
-      circuitHacksData: { bytesAfterStockPart: trailer.length, extraLanes: trailer.extraLanes, sceneRules: trailer.sceneRules },
+      circuitHacksData: {
+        bytesAfterStockPart: trailer.length, extraLanes: trailer.extraLanes, sceneRules: trailer.sceneRules,
+        usedByDevice: firmwareProfile(this.firmwareId).circuitHacks,
+      },
+      firmware: this.firmwareId,
       edits: o.undo.length, canRedo: o.redo.length > 0,
     };
   }
@@ -265,12 +287,18 @@ export class ProjectService {
 
   validate(id: string) {
     const p = this.get(id).project, problems: string[] = [];
+    const fw = firmwareProfile(this.firmwareId);
+    const notes: string[] = [];
     const t = N.readTrailer(p);
-    if (t.extraLanes && !t.extraLanes.sumMatches) problems.push("CIRCUIT-HACKS extra lanes: the stored sum does not match MIDI 1/2's patterns, so the device drops those lanes");
+    if (t.extraLanes && !t.extraLanes.sumMatches) {
+      const msg = "CIRCUIT-HACKS extra lanes: the stored sum does not match MIDI 1/2's patterns, so the device drops those lanes";
+      if (fw.circuitHacks) problems.push(msg);
+      else notes.push(`${msg} (kept byte for byte; the ${fw.name} firmware does not read them)`);
+    }
     const changed = this.diffVsOriginal(id).filter((r) => r.status !== "verified");
     for (const r of changed) problems.push(`changed a field that is not verified: ${r.field} at 0x${r.offset.toString(16)}`);
     const warnings = X.arrange(p).warnings;
-    return { ok: problems.length === 0, problems, exportNotes: warnings };
+    return { ok: problems.length === 0, problems, firmware: fw.id, firmwareNotes: notes, exportNotes: warnings };
   }
 
   /** Writes the project to a new file in the copies folder. Never overwrites. */
@@ -351,6 +379,46 @@ export class ProjectService {
     const f = readdirSync(pcm).find((x) => x.startsWith(prefix) && /\.wav$/i.test(x));
     if (!f) throw new ServiceError(`the pack has no sample ${index}`);
     return new Uint8Array(readFileSync(join(pcm, f)));
+  }
+
+  /**
+   * The synth patch banks of the project's pack (Patches/NN_PATCHBANK.cpb): names and categories.
+   * `ownSynthData` marks records that also hold a CIRCUIT-HACKS MIDI 1/2 patch (CTM1). Read-only.
+   */
+  packPatches(id: string): { pack: string | null; banks: PackBankOut[] } {
+    const dir = this.patchesFolder(this.get(id));
+    if (!dir) return { pack: null, banks: [] };
+    const banks = readdirSync(dir).flatMap((f) => {
+      const m = /^(\d\d)_.*\.cpb$/i.exec(f);
+      if (!m) return [];
+      const records = P.readBank(new Uint8Array(readFileSync(join(dir, f))));
+      return [{
+        bank: Number(m[1]), file: f,
+        patches: records.map((r) => ({
+          record: r.index, name: r.name, category: P.CATEGORIES[r.patch[16] ?? 0] ?? "None", ownSynthData: r.padding === "ctm1",
+        })),
+      }];
+    }).sort((a, b) => a.bank - b.bank);
+    return { pack: dirname(dir), banks };
+  }
+
+  /** One pack patch's 340 bytes, for auditioning. Read-only. */
+  packPatch(id: string, bank: number, record: number): number[] {
+    const dir = this.patchesFolder(this.get(id));
+    if (!dir) throw new ServiceError("this project is not inside a pack (Tracks/NN_Pack/Sessions/), so it has no patch banks");
+    const prefix = String(bank).padStart(2, "0") + "_";
+    const f = readdirSync(dir).find((x) => x.startsWith(prefix) && /\.cpb$/i.test(x));
+    if (!f) throw new ServiceError(`the pack has no patch bank ${bank}`);
+    const r = P.readBank(new Uint8Array(readFileSync(join(dir, f))))[record];
+    if (!r) throw new ServiceError(`bank ${bank} has no patch ${record}`);
+    return Array.from(r.patch);
+  }
+
+  private patchesFolder(o: Open): string | null {
+    const sessions = dirname(o.path);
+    if (basename(sessions).toLowerCase() !== "sessions") return null;
+    const dir = join(dirname(sessions), "Patches");
+    return existsSync(dir) && statSync(dir).isDirectory() ? dir : null;
   }
 
   private pcmFolder(o: Open): string | null {

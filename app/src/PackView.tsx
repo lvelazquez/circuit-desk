@@ -1,20 +1,33 @@
-// The project's pack: its 64 drum samples (click or Enter to hear one) and which drum uses which.
-// Synth patches are listed as not decoded yet; this view is where patch auditioning and editing
-// will go once the Nova patch format is decoded.
+// The project's pack: its 64 drum samples (click or Enter to hear one) and which drum uses which,
+// and its synth patch banks (click or Enter to hear a patch through the Nova preview; with Keys on,
+// the chosen patch plays from the computer keyboard).
 import { useEffect, useState, type CSSProperties } from "react";
+import type { FirmwareProfile } from "@circuit-desk/core-service";
 import { audition } from "./audio.ts";
 import { call } from "./desk.ts";
 import { DRUM_NAMES, trackStyle } from "./tracks.ts";
 
 type Pack = Awaited<ReturnType<typeof call<"packSamples">>>;
+type Patches = Awaited<ReturnType<typeof call<"packPatches">>>;
 
-export function PackView({ projectId, version }: { projectId: string; version: number }) {
+export interface PackPatchChoice { bank: number; record: number; name: string }
+
+export function PackView({ projectId, version, firmware, chosen, onPatch }: {
+  projectId: string;
+  version: number;
+  firmware: FirmwareProfile | null;
+  chosen: PackPatchChoice | null;
+  /** The user picked a pack patch: make it the keyboard sound and play it once. */
+  onPatch: (p: PackPatchChoice) => void;
+}) {
   const [pack, setPack] = useState<Pack | null>(null);
+  const [patches, setPatches] = useState<Patches | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [last, setLast] = useState<number | null>(null);
   useEffect(() => {
     let live = true;
     void call("packSamples", projectId).then((p) => { if (live) setPack(p); }, (e: unknown) => { if (live) setError((e as Error).message); });
+    void call("packPatches", projectId).then((p) => { if (live) setPatches(p); }, (e: unknown) => { if (live) setError((e as Error).message); });
     return () => { live = false; };
   }, [projectId, version]);
   if (error) return <p className="empty">{error}</p>;
@@ -23,6 +36,7 @@ export function PackView({ projectId, version }: { projectId: string; version: n
 
   const users = (i: number): (typeof DRUM_NAMES)[number][] => DRUM_NAMES.filter((_, d) => pack.drums[d] === i);
   const play = async (i: number): Promise<void> => { setLast(i); if (!(await audition(projectId, i))) setError(`Sample ${i} could not be played`); };
+  const ownSynthLabel = firmware?.circuitHacks ? "MIDI own synth" : "CIRCUIT-HACKS data, kept";
   return (
     <section aria-label="Pack" style={{ "--track": "var(--color-scene)" } as CSSProperties}>
       <h2 className="section-title">Samples · {pack.pack.split("/").slice(-1)[0]}</h2>
@@ -44,7 +58,31 @@ export function PackView({ projectId, version }: { projectId: string; version: n
         })}
       </div>
       <h2 className="section-title">Synth patches</h2>
-      <p className="hint">The pack's synth patches are not decoded yet, so Synth 1 and 2 preview with stand-in sounds. Patch auditioning and editing will live here.</p>
+      <p className="hint">
+        Choose a patch to hear it on the built-in preview (a first Nova voice: no LFOs or effects yet, so some patches sound thin or silent).
+        Turn on Keys to play the chosen patch from the computer keyboard.
+      </p>
+      {!patches?.banks.length ? <p className="hint">This pack has no patch banks.</p> : patches.banks.map((b) => (
+        <div key={b.bank} className="patch-bank">
+          <h3 className="patch-bank-title">Bank {b.bank + 1}</h3>
+          <div className="sample-grid" role="list" aria-label={`Patch bank ${b.bank + 1}`}>
+            {b.patches.map((p) => {
+              const selected = chosen?.bank === b.bank && chosen.record === p.record;
+              return (
+                <div role="listitem" key={p.record}>
+                  <button type="button" className="pad sample patch" data-selected={selected} aria-pressed={selected}
+                    aria-label={`Hear patch ${p.name || "unnamed"}, ${p.category}, bank ${b.bank + 1} slot ${p.record + 1}${p.ownSynthData ? `, ${ownSynthLabel}` : ""}`}
+                    onClick={() => onPatch({ bank: b.bank, record: p.record, name: p.name })}>
+                    <span className="pad-num" aria-hidden="true">{p.record + 1}</span>
+                    <span aria-hidden="true">{p.name || "—"}</span>
+                    <span className="sample-users" aria-hidden="true">{p.category}{p.ownSynthData ? " · CH" : ""}</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </section>
   );
 }

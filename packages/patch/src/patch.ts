@@ -17,12 +17,15 @@ export class PatchError extends Error {
   }
 }
 
-/** The 16-byte name, trailing spaces removed. Bytes outside printable ASCII are shown as "?". */
+/**
+ * The 16-byte name, trailing spaces removed. Zero bytes count as spaces (an empty name); other bytes
+ * outside printable ASCII are shown as "?".
+ */
 export function patchName(bytes: Uint8Array): string {
   let s = "";
   for (let i = 0; i < NAME_LEN; i++) {
     const c = bytes[i] ?? 32;
-    s += c >= 32 && c <= 126 ? String.fromCharCode(c) : "?";
+    s += c === 0 ? " " : c >= 32 && c <= 126 ? String.fromCharCode(c) : "?";
   }
   return s.trimEnd();
 }

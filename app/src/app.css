@@ -133,3 +133,10 @@ button, input, select { font: inherit; color: inherit; }
 .pad.sample { height: var(--size-pad); padding: var(--space-xs); text-align: center; overflow: hidden; }
 .pad.sample span:not(.pad-num) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .sample-users { font-size: var(--font-size-xs); font-weight: var(--font-weight-strong); }
+
+/* Pack view: synth patch banks. */
+.patch-bank { margin-bottom: var(--space-md); }
+.patch-bank-title { font-size: var(--font-size-sm); font-weight: var(--font-weight-strong); color: var(--color-text-secondary); margin: var(--space-sm) 0 var(--space-xs); }
+
+/* Keyboard player readout in the status bar. */
+.keys-status { font-family: var(--font-family-mono); color: var(--color-text-secondary); }

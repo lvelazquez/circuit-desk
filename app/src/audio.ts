@@ -1,8 +1,13 @@
 // The window's one AudioContext, made on first use (browsers start audio only after a click or key),
 // and sample loading shared by the preview engine and the pack view.
-import { wavLoader, type NovaRender, type SampleLoader } from "@circuit-desk/engine";
+import { loadNovaWorklet as loadModule, wavLoader, type NovaRender, type SampleLoader } from "@circuit-desk/engine";
 import novaWorkletUrl from "@circuit-desk/engine/nova-worklet?worker&url";
 import { call } from "./desk.ts";
+
+/** Loads the Nova worklet into `ctx` (once). */
+export function loadNovaWorklet(ctx: BaseAudioContext): Promise<void> {
+  return loadModule(ctx, novaWorkletUrl);
+}
 
 /** The project's own Synth 1/2 patches for the Nova voice, with the bundled worklet. */
 export async function novaRender(projectId: string): Promise<NovaRender> {

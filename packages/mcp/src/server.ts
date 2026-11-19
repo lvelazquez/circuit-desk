@@ -190,6 +190,18 @@ export function createServer(service = new ProjectService(), opts: { socket?: st
     inputSchema: { project }, annotations: READ,
   }, ({ project: id }) => run(() => svc.validate(id)));
 
+  server.registerTool("firmware", {
+    title: "Firmware",
+    description: "Which firmware the user's Circuit Tracks runs (Novation official or CIRCUIT-HACKS), and the ones known. With `set`, chooses it: this changes validation and preview, never the bytes kept. The app remembers the user's choice.",
+    inputSchema: { set: z.enum(["official", "circuit-hacks"]).optional().describe("The firmware to choose") }, annotations: EDIT,
+  }, ({ set }) => run(async () => { if (set) await svc.setFirmware(set); return svc.firmware(); }));
+
+  server.registerTool("list_pack_patches", {
+    title: "List pack patches",
+    description: "The synth patch banks of the project's pack: bank, record, name, category, and whether a record also holds a CIRCUIT-HACKS own-synth patch. Read-only.",
+    inputSchema: { project }, annotations: READ,
+  }, ({ project: id }) => run(() => svc.packPatches(id)));
+
   server.registerTool("get_fields", {
     title: "Get raw fields",
     description: "The file's field registry: offset, size, how far each field is trusted (verified / partial / unknown) and the evidence, with raw bytes for small fields.",

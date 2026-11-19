@@ -7,6 +7,7 @@
     "@circuit-desk/core-service": "*",
     "@circuit-desk/engine": "*",
     "@circuit-desk/ncs": "*",
+    "@circuit-desk/patch": "*",
     "@circuit-desk/playback": "*"
   },
   "devDependencies": {

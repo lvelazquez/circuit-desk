@@ -9,6 +9,7 @@ import { SocketClient } from "@circuit-desk/core-service";
 import { encodeWav } from "@circuit-desk/engine";
 import { LANE0, notePatternOffset, openProject, readNotePattern } from "@circuit-desk/ncs";
 import { blankProject } from "../../packages/ncs/src/testing.ts";
+import { PATCH_SIZE, initPatchBytes } from "@circuit-desk/patch";
 
 const home = mkdtempSync(path.join(tmpdir(), "circuit-desk-smoke-"));
 const file = path.join(home, "Card copy", "Tracks", "01_Smoke", "Sessions", "01_Smoke.ncs");
@@ -21,9 +22,25 @@ writeFileSync(file, start);
 mkdirSync(path.join(path.dirname(path.dirname(file)), "PCM"));
 const burst = new Float32Array(2880).map((_, i) => 0.8 * Math.sin((2 * Math.PI * 200 * i) / 48_000));
 writeFileSync(path.join(path.dirname(path.dirname(file)), "PCM", "00_Burst.wav"), encodeWav([burst], 48_000));
+// A patch bank: slot 1 is the guide's default patch as a Bass, with a CIRCUIT-HACKS own-synth record
+// in its padding; slot 2 is the default patch with the stock 0xFF filler.
+mkdirSync(path.join(path.dirname(path.dirname(file)), "Patches"));
+{
+  const bank = new Uint8Array(512 + PATCH_SIZE).fill(0xff);
+  const bass = initPatchBytes(); bass[16] = 2;
+  bank.set(bass, 0);
+  bank.set([0x43, 0x54, 0x4d, 0x31], PATCH_SIZE);
+  bank.set(initPatchBytes(), 512);
+  writeFileSync(path.join(path.dirname(path.dirname(file)), "Patches", "00_PATCHBANK.cpb"), bank);
+}
 process.env["CIRCUIT_DESK_HOME"] = home;
 process.env["CIRCUIT_DESK_USER_DATA"] = path.join(home, "app-data");
 process.env["CIRCUIT_DESK_OPEN"] = file;
+// The smoke window is often behind other windows. Chromium stops painting (and requestAnimationFrame,
+// which draws the playhead) for occluded or background windows, so checks failed at random.
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
 const mainEntry: string = "../electron/main.ts";
 void import(mainEntry);
 
@@ -37,6 +54,7 @@ async function run(): Promise<void> {
   for (let i = 0; i < 80 && !win; i++) { win = BrowserWindow.getAllWindows()[0]; await wait(100); }
   if (!win) throw new Error("no window");
   const wc = win.webContents;
+  wc.setBackgroundThrottling(false);
   if (wc.isLoading()) await new Promise<void>((r) => wc.once("did-finish-load", () => r()));
   const js = <T>(code: string) => (wc.executeJavaScript(code) as Promise<T>).catch((e: unknown) => { throw new Error(`${(e as Error).message} in: ${code.slice(0, 120)}`); });
   const until = async (code: string, ms = 3000): Promise<boolean> => { for (let t = 0; t < ms; t += 100) { if (await js<boolean>(code)) return true; await wait(100); } return false; };
@@ -100,7 +118,8 @@ async function run(): Promise<void> {
   check("Shift+] makes the note a step longer", width.trim() === "2", `--w ${width}`);
 
   // Mouse: drag the selected note two steps right, then drag its end one step longer.
-  const rect = async (): Promise<{ x: number; y: number; w: number; h: number }> => js(`(() => { const r = document.querySelector('.roll-note[data-selected=true]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  // After an edit the pattern reloads and the selected note is briefly re-rendered: wait for it.
+  const rect = async (): Promise<{ x: number; y: number; w: number; h: number }> => (await until(`!!document.querySelector('.roll-note[data-selected=true]')`), js(`(() => { const r = document.querySelector('.roll-note[data-selected=true]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`));
   const stepPx = await js<number>(`parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--size-roll-step'))`);
   const mouse = async (type: "mouseDown" | "mouseMove" | "mouseUp", x: number, y: number): Promise<void> => { wc.sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: "left", clickCount: 1 }); await wait(60); };
   let r0 = await rect();
@@ -163,6 +182,14 @@ async function run(): Promise<void> {
   await js(`document.querySelector('[aria-label^="Play sample 1"]').click()`);
   await wait(300);
   check("auditioning a sample plays without an error", !(await js<boolean>(`!!document.querySelector('[role=alert]') || /could not/.test(document.querySelector('.empty')?.textContent ?? '')`)));
+  // The pack's synth patches: listed with category and CIRCUIT-HACKS data, and auditioned on the Nova preview.
+  check("the pack view lists the synth patches, marking CIRCUIT-HACKS data as kept on the official firmware",
+    await until(`!!document.querySelector('[aria-label="Hear patch Initial Patch, Bass, bank 1 slot 1, CIRCUIT-HACKS data, kept"]') && !!document.querySelector('[aria-label="Hear patch Initial Patch, None, bank 1 slot 2"]')`),
+    await js<string>(`[...document.querySelectorAll('.pad.patch')].map(b => b.getAttribute('aria-label')).join(' | ') || 'none'`));
+  await js(`document.querySelector('[aria-label^="Hear patch Initial Patch, None"]').click()`);
+  check("choosing a pack patch selects it and plays without an error",
+    await until(`document.querySelector('[aria-label^="Hear patch Initial Patch, None"]').getAttribute('aria-pressed') === 'true'`) && !(await js<boolean>(`!!document.querySelector('[role=alert]')`)),
+    await js<string>(`document.querySelector('[role=alert]')?.textContent ?? ''`));
 
   // Export Preview Audio: the rendered WAV has the burst at step 1 and silence between hits.
   menuClick("Export Preview Audio");
@@ -190,6 +217,41 @@ async function run(): Promise<void> {
   check("Stop sends All Notes Off and clears the playhead", await until(`window.__sent.some(m => m.bytes[0] === 0xb0 && m.bytes[1] === 123) && !document.querySelector('[data-playing=true]')`));
   const sysex = await js<number>(`window.__sent.filter(m => m.bytes[0] === 0xf0).length`);
   check("no SysEx is ever sent", sysex === 0);
+
+  // Firmware: defaults to Novation official; a choice is remembered and reported.
+  const setSelect = (id: string, v: string): Promise<unknown> => js(`(() => { const s = document.getElementById('${id}'); s.value = '${v}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  check("the firmware is Novation official by default", (await js<string>(`document.getElementById('firmware').value`)) === "official");
+  await setSelect("firmware", "circuit-hacks");
+  check("choosing CIRCUIT-HACKS is remembered and reported", await until(`localStorage.getItem('circuit-desk.firmware') === 'circuit-hacks' && document.querySelector('[role=status]').textContent.includes('Firmware: CIRCUIT-HACKS')`),
+    await js<string>(`document.querySelector('[role=status]').textContent`));
+  await setSelect("firmware", "official");
+  await until(`localStorage.getItem('circuit-desk.firmware') === 'official'`);
+
+  // Keys: the computer keyboard plays Synth 1 on the chosen output (the fake port: channel 1).
+  await js(`[...document.querySelectorAll('[role=radio]')].find(b => b.textContent.includes('Synth 1'))?.click()`);
+  const keysBtn = `[...document.querySelectorAll('button')].find(b => b.textContent.includes('Keys'))`;
+  const editsBefore = await js<string>(`document.querySelector('.project-name').textContent`);
+  await js(`window.__sent.length = 0; ${keysBtn}.click()`);
+  check("Keys turns on and says what it plays", await until(`${keysBtn}.getAttribute('aria-pressed') === 'true' && document.querySelector('.keys-status').textContent.includes('Keys: Synth 1')`),
+    await js<string>(`document.querySelector('.keys-status').textContent`));
+  const tap = async (k: string): Promise<void> => { wc.sendInputEvent({ type: "keyDown", keyCode: k }); await wait(80); wc.sendInputEvent({ type: "keyUp", keyCode: k }); await wait(80); };
+  await tap("A");
+  check("A plays C3 (60) on Synth 1's channel and releases it", await until(`window.__sent.some(m => m.bytes[0] === 0x90 && m.bytes[1] === 60 && m.bytes[2] === 100) && window.__sent.some(m => m.bytes[0] === 0x80 && m.bytes[1] === 60)`),
+    JSON.stringify(await js(`window.__sent`)));
+  await tap("X"); await tap("V"); await tap("W");
+  check("X raises the octave and V the velocity (W = C#4 at 120)", await until(`window.__sent.some(m => m.bytes[0] === 0x90 && m.bytes[1] === 73 && m.bytes[2] === 120)`),
+    JSON.stringify(await js(`window.__sent.slice(-2)`)));
+  check("playing keys does not edit the project", (await js<string>(`document.querySelector('.project-name').textContent`)) === editsBefore);
+  await tap("Escape");
+  check("Esc turns Keys off and nothing is left sounding", await until(`${keysBtn}.getAttribute('aria-pressed') === 'false'`)
+    && (await js<number>(`window.__sent.filter(m => m.bytes[0] === 0x90).length - window.__sent.filter(m => m.bytes[0] === 0x80).length`)) === 0);
+  // On the built-in preview, keys play the Nova worklet without an error.
+  await setSelect("midi-out", "preview");
+  await js(`${keysBtn}.click()`);
+  await tap("A");
+  check("Keys on the built-in preview play without an error", await until(`document.querySelector('.keys-status').textContent.includes('preview')`) && !(await js<boolean>(`!!document.querySelector('[role=alert]')`)),
+    await js<string>(`document.querySelector('[role=alert]')?.textContent ?? document.querySelector('.keys-status').textContent`));
+  await tap("Escape");
 
   const shot = path.join(home, "circuit-view.png");
   writeFileSync(shot, (await wc.capturePage()).toPNG());

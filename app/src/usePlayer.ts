@@ -128,5 +128,5 @@ export function usePlayer(projectId: string | null, version: number) {
 
   const choosePort = (id: string): void => { if (playing) stop(); setPortId(id || null); if (id) remember(PORT_KEY, id); };
   const chooseTarget = (t: PlayTarget): void => { if (playing) stop(); setTarget(t); remember(TARGET_KEY, t); };
-  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error };
+  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error, liveOutput: output };
 }

@@ -15,8 +15,15 @@ import { DRUM_NAMES, isDrum, isNoteTrack, TRACK_NAMES } from "./tracks.ts";
 import { encodeWav, renderOffline } from "@circuit-desk/engine";
 import { novaRender } from "./audio.ts";
 import { usePlayer } from "./usePlayer.ts";
+import { useKeyboardPlayer, type KeySound } from "./useKeyboardPlayer.ts";
+import type { PackPatchChoice } from "./PackView.tsx";
+import { patchName } from "@circuit-desk/patch";
 
 type View = "circuit" | "editor" | "scenes" | "pack";
+type Firmware = Awaited<ReturnType<typeof call<"firmware">>>;
+const FIRMWARE_KEY = "circuit-desk.firmware";
+function remembered(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
+function remember(key: string, v: string): void { try { localStorage.setItem(key, v); } catch { /* a per-viewer convenience only */ } }
 interface Status { text: string; error?: boolean }
 
 const isTextField = (el: Element | null): boolean => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
@@ -41,6 +48,52 @@ export function App() {
 
   const fail = (e: unknown): void => setStatus({ text: (e as Error).message, error: true });
   const player = usePlayer(projectId, version);
+
+  // Firmware the device runs: remembered here, held by the service (validation, MCP).
+  const [firmware, setFirmware] = useState<Firmware | null>(null);
+  const readFirmware = useCallback(() => { void call("firmware").then(setFirmware, fail); }, []);
+  useEffect(() => {
+    const saved = remembered(FIRMWARE_KEY);
+    void (saved ? call("setFirmware", saved).catch(() => undefined) : Promise.resolve()).then(readFirmware);
+  }, [readFirmware]);
+  const chooseFirmware = (id: string): void => {
+    void call("setFirmware", id).then((f) => {
+      remember(FIRMWARE_KEY, f.id);
+      readFirmware();
+      setVersion((v) => v + 1);
+      setStatus({ text: `Firmware: ${f.name} ${f.versions}. ${f.description}` });
+    }, fail);
+  };
+
+  // What the computer keyboard plays: the chosen pack patch, else the current note track's sound.
+  const [packChoice, setPackChoice] = useState<PackPatchChoice | null>(null);
+  const [keySound, setKeySound] = useState<KeySound | null>(null);
+  useEffect(() => {
+    if (!projectId) { setKeySound(null); return; }
+    let live = true;
+    void (async () => {
+      try {
+        if (packChoice) {
+          const bytes = Uint8Array.from(await call("packPatch", projectId, packChoice.bank, packChoice.record));
+          if (live) setKeySound({ label: `Pack bank ${packChoice.bank + 1} · ${packChoice.name}`, patch: bytes, channel: 0, previewOnly: true });
+          return;
+        }
+        const t = isNoteTrack(track) ? track : "Synth 1";
+        const channel = (["Synth 1", "Synth 2", "MIDI 1", "MIDI 2"] as const).indexOf(t);
+        if (channel < 2) {
+          const p = await call("synthPatches", projectId);
+          const bytes = Uint8Array.from(channel === 0 ? p.synth1 : p.synth2);
+          if (live) setKeySound({ label: `${t} · ${patchName(bytes) || "unnamed"}`, patch: bytes, channel, previewOnly: false });
+        } else if (live) {
+          const own = firmware?.current.midiTracks === "own-synth";
+          setKeySound({ label: `${t} · ${own ? "own synth not emulated yet: stand-in" : "external MIDI: stand-in on the preview"}`, patch: null, channel, previewOnly: false });
+        }
+      } catch (e) { if (live) fail(e); }
+    })();
+    return () => { live = false; };
+  }, [projectId, track, packChoice, version, firmware]);
+  const keys = useKeyboardPlayer(keySound, player.liveOutput);
+  const choosePackPatch = (p: PackPatchChoice): void => { setPackChoice(p); window.setTimeout(() => void keys.audition(), 0); };
   /** The step playing on `t`, if it is playing the pattern on screen. */
   const playStep = (t: TrackName): number | null => {
     const h = player.heads[TRACK_NAMES.indexOf(t as (typeof TRACK_NAMES)[number])];
@@ -136,10 +189,11 @@ export function App() {
       const buf = await renderOffline(a, pack.drums, (i) => call("sampleData", projectId, i), await novaRender(projectId));
       const wav = encodeWav(Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c)), buf.sampleRate);
       const { path } = await call("saveAudio", projectId, wav);
-      setStatus({ text: `Exported ${path} (built-in preview: drums from the pack; Synth 1/2 play their own patches on a first Nova voice, MIDI 1/2 are stand-ins)` });
+      const midi = firmware?.current.midiTracks === "own-synth" ? "MIDI 1/2 own synths are not emulated yet (stand-ins)" : "MIDI 1/2 are stand-ins for external gear";
+      setStatus({ text: `Exported ${path} (built-in preview: drums from the pack; Synth 1/2 play their own patches on a first Nova voice; ${midi})` });
       void bridge().reveal(path);
     } catch (e) { fail(e); }
-  }, [projectId]);
+  }, [projectId, firmware]);
 
   const pick = useCallback(async () => {
     try { const p = await bridge().pickProject(); if (p) await open(p); } catch (e) { fail(e); }
@@ -158,16 +212,17 @@ export function App() {
         else if (command === "export-audio") void exportAudio();
         else if (command === "toggle-view") setView((v) => (v === "circuit" ? "editor" : v === "editor" ? "scenes" : v === "scenes" ? "pack" : "circuit"));
         else if (command === "changed") {
-          // Claude edited or opened a project through the MCP link.
+          // Claude edited or opened a project (or chose the firmware) through the MCP link.
           setVersion((v) => v + 1);
+          readFirmware();
           void call("openProjects").then((o) => setProjectId((cur) => cur ?? o[0]?.id ?? null), fail);
         }
         else if (command === "play") { if (player.playing) player.stop(); else void player.play(); }
       });
     } catch { return undefined; }
-  }, [undo, pick, saveCopy, exportTo, exportAudio, player]);
+  }, [undo, pick, saveCopy, exportTo, exportAudio, player, readFirmware]);
 
-  const chooseTrack = (t: TrackName): void => { setTrack(t); setStep(null); };
+  const chooseTrack = (t: TrackName): void => { setTrack(t); setStep(null); setPackChoice(null); };
   const choosePattern = (n: number): void => { setPattern(n); setStep(null); setDrumSel(null); };
   const current = library.find((l) => l.path === summary?.path)?.path ?? summary?.path ?? null;
   const inspectorTrack: TrackName = view === "editor" && drumSel ? drumSel.drum : track;
@@ -200,7 +255,15 @@ export function App() {
             <option value="live">→ Live set</option>
           </select>
           <label><input type="checkbox" checked={player.clock} disabled={player.playing} onChange={(e) => player.setClock(e.target.checked)} /> Clock</label>
+          <button type="button" className="btn" aria-pressed={keys.on} disabled={!keySound}
+            title="Play the synth sound from the computer keyboard: A–; notes, W E T Y U O P sharps, Z/X octave, C/V velocity, Esc off"
+            onClick={() => keys.setOn(!keys.on)}>⌨ Keys</button>
         </div>
+        <label className="visually-hidden" htmlFor="firmware">Firmware on your Circuit Tracks</label>
+        <select id="firmware" value={firmware?.current.id ?? ""} disabled={!firmware} onChange={(e) => chooseFirmware(e.target.value)}
+          title={firmware?.current.description}>
+          {firmware?.available.map((f) => <option key={f.id} value={f.id}>Firmware: {f.name}</option>)}
+        </select>
         <button type="button" className="btn" onClick={() => void pick()}>Open…</button>
         <button type="button" className="btn" disabled={!summary?.edits} onClick={() => void undo()}>Undo</button>
         <button type="button" className="btn" disabled={!summary?.canRedo} onClick={() => void undo(true)}>Redo</button>
@@ -212,7 +275,7 @@ export function App() {
         <Library items={library} current={current} onOpen={(p) => void open(p)} />
         <main className="workspace" aria-label={`${view[0]!.toUpperCase()}${view.slice(1)} view`}>
           {!summary || !data ? <p className="empty">{projectId ? "Loading…" : "Choose a project in the library, or File › Open Project."}</p>
-            : view === "pack" && projectId ? <PackView projectId={projectId} version={version} />
+            : view === "pack" && projectId ? <PackView projectId={projectId} version={version} firmware={firmware?.current ?? null} chosen={packChoice} onPatch={choosePackPatch} />
             : view === "scenes" ? (scenes ? (
               <ScenesView scenes={scenes}
                 onSceneChain={(first, last) => { if (projectId) void edit(`scene chain ${first}–${last}`, () => call("setChain", projectId, "scenes", first, last)); }}
@@ -258,6 +321,10 @@ export function App() {
           <span>No MIDI outputs: the built-in preview plays here; for the Circuit or Live, connect it or turn on the IAC Driver.</span>
         )}
         <span>{player.playing ? "Playing the current chains" : ""}</span>
+        {keys.error && <span role="alert" className="error">{keys.error}</span>}
+        <span className="keys-status" aria-live="polite">
+          {keys.on && keySound ? `Keys: ${keySound.label} · ${keySound.previewOnly || !player.liveOutput() ? "preview" : "MIDI out"} · octave C${keys.octave} · velocity ${keys.velocity} (Z/X, C/V, Esc)` : ""}
+        </span>
       </footer>
     </div>
   );
