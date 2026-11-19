@@ -5,7 +5,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NovaInstrument } from "@circuit-desk/engine";
 import { initPatchBytes as initPatchBytesForPreview } from "@circuit-desk/patch";
-import { audioContext, loadNovaWorklet } from "./audio.ts";
+import { appOutput, audioContext, loadNovaWorklet } from "./audio.ts";
+import { logEvent } from "./capture.ts";
 import { DEFAULT_OCTAVE, KEY_NOTES, MAX_OCTAVE, MIN_OCTAVE, keyCode, keyNote } from "./keymap.ts";
 
 const VELOCITY_STEP = 20;
@@ -38,7 +39,7 @@ export function useKeyboardPlayer(sound: KeySound | null, output: () => MIDIOutp
       const ctx = audioContext();
       await loadNovaWorklet(ctx);
       const patch = sound?.patch ?? initPatchBytesForPreview();
-      if (!inst.current) inst.current = new NovaInstrument(ctx, ctx.destination, patch);
+      if (!inst.current) inst.current = new NovaInstrument(ctx, await appOutput(), patch);
       else inst.current.setPatch(patch);
       return inst.current;
     } catch (e) { setError(`Preview: ${(e as Error).message}`); return null; }
@@ -58,15 +59,19 @@ export function useKeyboardPlayer(sound: KeySound | null, output: () => MIDIOutp
     if (!sound) return;
     const midi = sound.previewOnly ? null : output();
     held.current.set(code, { note, midi, channel: sound.channel });
-    if (midi) { midi.send([0x90 | sound.channel, note, velocity]); return; }
+    const log = (route: "preview" | "midi"): void => logEvent({
+      time: audioContext().currentTime, source: "keys", track: sound.channel, bytes: [0x90 | sound.channel, note, velocity], route, sound: sound.label,
+    });
+    if (midi) { midi.send([0x90 | sound.channel, note, velocity]); log("midi"); return; }
     const i = await preview();
-    if (i && held.current.get(code)?.note === note) i.noteOn({ time: audioContext().currentTime, note, velocity });
+    if (i && held.current.get(code)?.note === note) { i.noteOn({ time: audioContext().currentTime, note, velocity }); log("preview"); }
   }, [sound, output, preview, velocity]);
 
   const noteOff = useCallback((code: string): void => {
     const h = held.current.get(code);
     if (!h) return;
     held.current.delete(code);
+    logEvent({ time: audioContext().currentTime, source: "keys", track: h.channel, bytes: [0x80 | h.channel, h.note, 0], route: h.midi ? "midi" : "preview" });
     if (h.midi) h.midi.send([0x80 | h.channel, h.note, 0]);
     else inst.current?.noteOff(audioContext().currentTime, h.note);
   }, []);
@@ -123,7 +128,10 @@ export function useKeyboardPlayer(sound: KeySound | null, output: () => MIDIOutp
     const t = audioContext().currentTime;
     i.noteOn({ time: t, note, velocity: 100 });
     i.noteOff(t + seconds, note);
-  }, [preview]);
+    const ch = sound?.channel ?? 0, label = sound?.label ?? "default patch";
+    logEvent({ time: t, source: "keys", track: ch, bytes: [0x90 | ch, note, 100], route: "preview", sound: label });
+    logEvent({ time: t + seconds, source: "keys", track: ch, bytes: [0x80 | ch, note, 0], route: "preview", sound: label });
+  }, [preview, sound]);
 
   return { on, setOn, octave, velocity, error, audition };
 }

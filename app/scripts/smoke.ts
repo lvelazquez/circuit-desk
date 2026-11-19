@@ -253,6 +253,17 @@ async function run(): Promise<void> {
     await js<string>(`document.querySelector('[role=alert]')?.textContent ?? document.querySelector('.keys-status').textContent`));
   await tap("Escape");
 
+  // Sound report: the last seconds of audio with the events that made them, saved under Exports/Reports.
+  menuClick("Capture Last 10 Seconds (Sound Report)");
+  const captured = await until(`document.querySelector('[role=status]').textContent.includes('Saved a sound report')`, 8000);
+  const reportsDir = path.join(home, "Exports", "Reports");
+  const reportDir = captured ? readdirSync(reportsDir).map((d) => path.join(reportsDir, d))[0] : undefined;
+  const report = reportDir ? JSON.parse(readFileSync(path.join(reportDir, "report.json"), "utf8")) as { events: { source: string; route?: string; bytes: number[]; offset: number }[]; audio: { frames: number } } : null;
+  const keyNote = report?.events.find((e) => e.source === "keys" && e.route === "preview" && e.bytes[0] === 0x90);
+  check("Capture saves the audio and the events that made it", !!report && report.audio.frames > 0 && !!keyNote && keyNote.offset > 0,
+    `${await js<string>(`document.querySelector('[role=status]').textContent`)} | ${report ? `${report.events.length} events, ${report.audio.frames} frames` : "no report"}`);
+  if (reportDir) console.log(`sound report: ${reportDir}`);
+
   const shot = path.join(home, "circuit-view.png");
   writeFileSync(shot, (await wc.capturePage()).toPNG());
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Editor').click()`);

@@ -31,6 +31,12 @@
   - `tools/patch-show.ts`: a patch's non-default values.
   - `tools/nova-levels.ts`: peak distribution over the card.
 
+**Glitch pass (2026-11-19):**
+- **Clicks fixed** (`nova/clicks.test.ts`): retriggers, voice steals and mono note changes no longer restart a sounding voice mid-cycle. Envelope stages have declick floors (2 ms attack, 8 ms decay and release). All-notes-off fades.
+- **Clipping fixed:** a soft clipper after the master limiter; a factory project, "Archived Fax", had 348 full-scale samples before, none after.
+- **CPU:** 12 voices use under 7 % of one core.
+- **Sound reports:** Transport › Capture Last 10 Seconds (⇧⌘R) saves audio, events and patches to `Exports/Reports/`. `tools/replay-report.ts` replays a report offline and locates jumps.
+
 **Next:** E0.4 (macro formula from the ARM routine), then LFOs 1–2, then E0.6 curves.
 
 **Rule for this plan:** no device or card writes. Device reads (SysEx dump requests, the `fwid` query) need approval at the time. Firmware-derived data stays local and is never committed (§5).

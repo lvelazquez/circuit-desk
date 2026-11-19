@@ -315,6 +315,24 @@ export class ProjectService {
     return out;
   }
 
+  /**
+   * Saves a sound report from the app's capture button: `report.json` (events, patches, settings)
+   * and `audio.wav` (what was heard) in a new folder under exports/Reports. Never overwrites.
+   */
+  saveReport(report: string, wav: Uint8Array): { path: string } {
+    if (typeof report !== "string" || report.length > 20_000_000) throw new ServiceError("not a report");
+    try { JSON.parse(report); } catch { throw new ServiceError("the report is not valid JSON"); }
+    if (!(wav instanceof Uint8Array) || wav.length < 44 || String.fromCharCode(...wav.slice(0, 4)) !== "RIFF") throw new ServiceError("not a WAV file");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const dir = join(this.paths.exports, "Reports", `Sound ${stamp}`);
+    checkWritable(join(dir, "report.json"), [this.paths.exports]);
+    if (existsSync(dir)) throw new ServiceError(`${dir} already exists`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "report.json"), report, { flag: "wx" });
+    writeFileSync(join(dir, "audio.wav"), wav, { flag: "wx" });
+    return { path: dir };
+  }
+
   /** Writes the preview engine's render of the project as `<name> (preview).wav` in its exports folder. */
   saveAudio(id: string, wav: Uint8Array): { path: string } {
     const o = this.get(id);

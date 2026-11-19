@@ -140,3 +140,6 @@ button, input, select { font: inherit; color: inherit; }
 
 /* Keyboard player readout in the status bar. */
 .keys-status { font-family: var(--font-family-mono); color: var(--color-text-secondary); }
+
+/* A compact button for the status bar. */
+.btn.btn-small { padding: var(--space-2xs) var(--space-sm); font-size: var(--font-size-sm); }

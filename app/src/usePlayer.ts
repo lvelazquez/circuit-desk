@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Arrangement } from "@circuit-desk/export";
 import { PreviewEngine } from "@circuit-desk/engine";
 import { playheads, Schedule, type TimedMessage } from "@circuit-desk/playback";
-import { audioContext, novaRender, packLoader } from "./audio.ts";
+import { appOutput, audioContext, novaRender, packLoader } from "./audio.ts";
+import { logEvent } from "./capture.ts";
 import { call } from "./desk.ts";
 
 /** The built-in preview engine's entry in the output list. */
@@ -59,7 +60,11 @@ export function usePlayer(projectId: string | null, version: number) {
   /** Makes the engine (first time) and loads the drum samples this arrangement uses. */
   const prepare = useCallback(async (a: Arrangement): Promise<void> => {
     if (!preview || !projectId) return;
-    engine.current ??= new PreviewEngine(audioContext());
+    if (!engine.current) {
+      // Through the capture tap, and every message logged, so a sound report has what was played.
+      engine.current = new PreviewEngine(audioContext(), { output: await appOutput() });
+      engine.current.listener = (e) => logEvent({ ...e, source: "player" });
+    }
     const pack = await call("packSamples", projectId);
     const flips = a.tracks.slice(4).map((t) => [...new Set(t.notes.flatMap((n) => (n.sample !== undefined ? [n.sample] : [])))]);
     await engine.current.loadDrums(pack.drums, flips, packLoader(projectId));

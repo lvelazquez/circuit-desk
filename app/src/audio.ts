@@ -1,6 +1,6 @@
 // The window's one AudioContext, made on first use (browsers start audio only after a click or key),
 // and sample loading shared by the preview engine and the pack view.
-import { loadNovaWorklet as loadModule, wavLoader, type NovaRender, type SampleLoader } from "@circuit-desk/engine";
+import { TAP_PROCESSOR, loadNovaWorklet as loadModule, wavLoader, type NovaRender, type SampleLoader } from "@circuit-desk/engine";
 import novaWorkletUrl from "@circuit-desk/engine/nova-worklet?worker&url";
 import { call } from "./desk.ts";
 
@@ -23,6 +23,24 @@ export function audioContext(): AudioContext {
   return ctx;
 }
 
+let tap: Promise<AudioWorkletNode> | null = null;
+
+/**
+ * The app's output bus: everything audible (the preview engine, Keys, sample auditions) goes
+ * through the capture tap on its way to the speakers, so a sound report has exactly what was heard.
+ */
+export function appOutput(): Promise<AudioWorkletNode> {
+  const c = audioContext();
+  tap ??= loadNovaWorklet(c).then(() => {
+    const n = new AudioWorkletNode(c, TAP_PROCESSOR, {
+      numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: "explicit",
+    });
+    n.connect(c.destination);
+    return n;
+  });
+  return tap;
+}
+
 const cache = new Map<string, Promise<AudioBuffer | null>>();
 
 /** Decoded pack samples, cached per project. */
@@ -42,6 +60,6 @@ export async function audition(projectId: string, index: number): Promise<boolea
   const buf = await packLoader(projectId)(index);
   if (!buf) return false;
   const src = c.createBufferSource();
-  src.buffer = buf; src.connect(c.destination); src.start();
+  src.buffer = buf; src.connect(await appOutput()); src.start();
   return true;
 }

@@ -14,6 +14,8 @@ import { ScenesView } from "./ScenesView.tsx";
 import { DRUM_NAMES, isDrum, isNoteTrack, TRACK_NAMES } from "./tracks.ts";
 import { encodeWav, renderOffline } from "@circuit-desk/engine";
 import { novaRender } from "./audio.ts";
+import { buildReport } from "./capture.ts";
+import appPackage from "../package.json";
 import { usePlayer } from "./usePlayer.ts";
 import { useKeyboardPlayer, type KeySound } from "./useKeyboardPlayer.ts";
 import type { PackPatchChoice } from "./PackView.tsx";
@@ -180,6 +182,28 @@ export function App() {
     } catch (e) { fail(e); }
   }, [projectId]);
 
+  /** Saves the last 10 seconds of sound with its events and patches, for finding a glitch. */
+  const capture = useCallback(async () => {
+    try {
+      setStatus({ text: "Capturing the last 10 seconds…" });
+      const synthPatches = projectId ? await call("synthPatches", projectId) : null;
+      const r = await buildReport({
+        appVersion: appPackage.version,
+        firmware: firmware?.current.id ?? null,
+        project: summary?.path ?? null,
+        view, track,
+        output: player.portId,
+        keys: keySound ? { label: keySound.label, channel: keySound.channel, previewOnly: keySound.previewOnly, patch: keySound.patch ? Array.from(keySound.patch) : null } : null,
+        synthPatches,
+      });
+      const { path } = await call("saveReport", r.json, r.wav);
+      setStatus({ text: r.events === 0
+        ? `Saved a sound report in ${path}, but nothing played in the last 10 seconds: play the glitch, then capture right after.`
+        : `Saved a sound report (${r.seconds.toFixed(1)} s, ${r.events} events) in ${path}. Say what you heard and roughly when.` });
+      void bridge().reveal(path);
+    } catch (e) { fail(e); }
+  }, [projectId, firmware, summary, view, track, player.portId, keySound]);
+
   const exportAudio = useCallback(async () => {
     if (!projectId) return;
     try {
@@ -218,9 +242,10 @@ export function App() {
           void call("openProjects").then((o) => setProjectId((cur) => cur ?? o[0]?.id ?? null), fail);
         }
         else if (command === "play") { if (player.playing) player.stop(); else void player.play(); }
+        else if (command === "capture") void capture();
       });
     } catch { return undefined; }
-  }, [undo, pick, saveCopy, exportTo, exportAudio, player, readFirmware]);
+  }, [undo, pick, saveCopy, exportTo, exportAudio, player, readFirmware, capture]);
 
   const chooseTrack = (t: TrackName): void => { setTrack(t); setStep(null); setPackChoice(null); };
   const choosePattern = (n: number): void => { setPattern(n); setStep(null); setDrumSel(null); };
@@ -315,6 +340,8 @@ export function App() {
         ) : <aside className="panel inspector" aria-label="Inspector" />}
       </div>
       <footer className="statusbar">
+        <button type="button" className="btn btn-small" onClick={() => void capture()}
+          title="Save the last 10 seconds of sound, with the notes and patches, to report a glitch (Transport › Capture Last 10 Seconds, ⇧⌘R)">⏺ Capture sound</button>
         <span role="status" aria-live="polite" className={status.error ? "error" : undefined}>{status.text}</span>
         {player.error && <span role="alert" className="error">{player.error}</span>}
         {!player.error && player.ports.length <= 1 && (
