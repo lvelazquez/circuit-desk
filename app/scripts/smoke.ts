@@ -87,6 +87,22 @@ async function run(): Promise<void> {
   const width = await js<string>(`getComputedStyle(document.querySelector('.roll-note[data-selected=true]')).getPropertyValue('--w')`);
   check("Shift+] makes the note a step longer", width.trim() === "2", `--w ${width}`);
 
+  // Mouse: drag the selected note two steps right, then drag its end one step longer.
+  const rect = async (): Promise<{ x: number; y: number; w: number; h: number }> => js(`(() => { const r = document.querySelector('.roll-note[data-selected=true]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })()`);
+  const stepPx = await js<number>(`parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--size-roll-step'))`);
+  const mouse = async (type: "mouseDown" | "mouseMove" | "mouseUp", x: number, y: number): Promise<void> => { wc.sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: "left", clickCount: 1 }); await wait(60); };
+  let r0 = await rect();
+  await mouse("mouseDown", r0.x + 4, r0.y + r0.h / 2); await mouse("mouseMove", r0.x + 4 + stepPx, r0.y + r0.h / 2); await mouse("mouseMove", r0.x + 4 + 2 * stepPx, r0.y + r0.h / 2); await mouse("mouseUp", r0.x + 4 + 2 * stepPx, r0.y + r0.h / 2);
+  await wait(300);
+  const r1 = await rect();
+  check("dragging a note moves it two steps", Math.abs(r1.x - r0.x - 2 * stepPx) < 2, `${r0.x} → ${r1.x}`);
+  r0 = r1;
+  const end = r0.x + r0.w - 2;
+  await mouse("mouseDown", end, r0.y + r0.h / 2); await mouse("mouseMove", end + stepPx, r0.y + r0.h / 2); await mouse("mouseUp", end + stepPx, r0.y + r0.h / 2);
+  await wait(300);
+  const r2 = await rect();
+  check("dragging a note's end makes it longer", r2.w - r0.w > stepPx * 0.8, `${r0.w} → ${r2.w}`);
+
   await js(`document.querySelector('.drum-cell').click()`);
   check("a click on the drum grid adds a hit", await until(`document.querySelector('.drum-cell').getAttribute('aria-pressed') === 'true'`));
 
@@ -102,6 +118,15 @@ async function run(): Promise<void> {
   check("pads animate normally and not under reduced motion", motion.includes("0.09s") && reduced.split(",").every((d) => d.trim() === "0s"), `${motion} → ${reduced}`);
   await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
   wc.debugger.detach();
+
+  // Scenes: store the current chains in scene 2.
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Scenes').click()`);
+  await until(`!!document.querySelector('[aria-label^="Scene 2:"]')`);
+  await js(`document.querySelector('[aria-label^="Scene 2:"]').click()`);
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Store current chains in scene 2').click()`);
+  check("storing the current chains saves scene 2", await until(`document.querySelector('[aria-label^="Scene 2:"]').getAttribute('aria-label').startsWith('Scene 2: saved')`));
+  const shot3 = path.join(home, "scenes-view.png");
+  writeFileSync(shot3, (await wc.capturePage()).toPNG());
 
   // An edit from outside (as the MCP server makes it) shows in the window.
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
@@ -131,7 +156,7 @@ async function run(): Promise<void> {
   const shot2 = path.join(home, "editor-view.png");
   writeFileSync(shot2, (await wc.capturePage()).toPNG());
   console.log(results.join("\n"));
-  console.log(`screenshots: ${shot} ${shot2} ${shotPlaying}`);
+  console.log(`screenshots: ${shot} ${shot2} ${shotPlaying} ${shot3}`);
 }
 
 void app.whenReady().then(() => setTimeout(() => {

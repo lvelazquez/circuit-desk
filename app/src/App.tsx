@@ -9,10 +9,11 @@ import { bridge, call, type DrumPatternData, type Listing, type PatternData, typ
 import { DrumGrid, PianoRoll } from "./EditorView.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { Library } from "./Library.tsx";
+import { ScenesView } from "./ScenesView.tsx";
 import { DRUM_NAMES, isDrum, isNoteTrack, TRACK_NAMES } from "./tracks.ts";
 import { usePlayer } from "./usePlayer.ts";
 
-type View = "circuit" | "editor";
+type View = "circuit" | "editor" | "scenes";
 interface Status { text: string; error?: boolean }
 
 const isTextField = (el: Element | null): boolean => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
@@ -135,7 +136,7 @@ export function App() {
         else if (command === "save-copy") void saveCopy();
         else if (command === "export-midi") void exportTo("midi");
         else if (command === "export-als") void exportTo("als");
-        else if (command === "toggle-view") setView((v) => (v === "circuit" ? "editor" : "circuit"));
+        else if (command === "toggle-view") setView((v) => (v === "circuit" ? "editor" : v === "editor" ? "scenes" : "circuit"));
         else if (command === "changed") {
           // Claude edited or opened a project through the MCP link.
           setVersion((v) => v + 1);
@@ -161,6 +162,7 @@ export function App() {
         <div role="group" aria-label="View" className="row" style={{ margin: 0 }}>
           <button type="button" className="btn" aria-pressed={view === "circuit"} onClick={() => setView("circuit")}>Circuit</button>
           <button type="button" className="btn" aria-pressed={view === "editor"} onClick={() => setView("editor")}>Editor</button>
+          <button type="button" className="btn" aria-pressed={view === "scenes"} onClick={() => setView("scenes")}>Scenes</button>
         </div>
         <div role="group" aria-label="Transport" className="row" style={{ margin: 0 }}>
           <button type="button" className="btn" aria-pressed={player.playing} disabled={!projectId}
@@ -181,8 +183,13 @@ export function App() {
       </header>
       <div className="main">
         <Library items={library} current={current} onOpen={(p) => void open(p)} />
-        <main className="workspace" aria-label={view === "circuit" ? "Circuit view" : "Editor view"}>
+        <main className="workspace" aria-label={view === "circuit" ? "Circuit view" : view === "editor" ? "Editor view" : "Scenes view"}>
           {!summary || !data ? <p className="empty">{projectId ? "Loading…" : "Choose a project in the library, or File › Open Project."}</p>
+            : view === "scenes" ? (scenes ? (
+              <ScenesView scenes={scenes}
+                onSceneChain={(first, last) => { if (projectId) void edit(`scene chain ${first}–${last}`, () => call("setChain", projectId, "scenes", first, last)); }}
+                onScene={(n, chains, label) => { if (projectId) void edit(label, () => call("setScene", projectId, n, chains)); }} />
+            ) : <p className="empty">Loading…</p>)
             : view === "circuit" ? (
               <CircuitView playStep={playStep(track)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
                 onTrack={chooseTrack} onPattern={choosePattern} onSelectStep={setStep} onPage={setPage} onOctave={setOctave} onCurrentNote={setCurrentNote}

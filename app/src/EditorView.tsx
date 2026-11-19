@@ -1,7 +1,7 @@
 // DAW-style editing: a piano roll with a velocity lane for note tracks, a drum grid for all four
 // drums of a pattern. Every edit goes through the same service calls as the Circuit view, so the
 // device's limits (6 notes a step, 32 steps, sixth-of-a-step timing) always hold.
-import { useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
+import { useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import type { DrumStepIn, DrumTrackName, NoteStepIn, TrackName } from "@circuit-desk/core-service";
 import type { DrumPatternData, NotePatternData } from "./desk.ts";
 import { clamp, isBlackKey, moveNote, noteName, noteSpoken, rollRange, STEPS, stepMap, toggleNote, updateNote } from "./model.ts";
@@ -11,6 +11,11 @@ import { useRoving } from "./useRoving.ts";
 /** Grid positions go to CSS as counts; the sizes are the --size-roll-* tokens. */
 const vars = (v: Record<string, number>): CSSProperties => Object.fromEntries(Object.entries(v).map(([k, x]) => [`--${k}`, String(x)])) as CSSProperties;
 const tokenPx = (el: Element, name: string): number => parseFloat(getComputedStyle(el).getPropertyValue(name)) || 1;
+/** Grabbing a note this close to its end (in steps) resizes it instead of moving it. */
+const RESIZE_ZONE = 0.35;
+
+interface Drag { mode: "move" | "resize"; step: number; pitch: number; x0: number; p0: number; dStep: number; dPitch: number; dGate: number; moved: boolean }
+
 /** Notes are drawn at least this opaque, reaching full at velocity 127, so soft notes stay visible. */
 const VELOCITY_ALPHA_FLOOR = 0.45;
 
@@ -60,11 +65,55 @@ export function PianoRoll({ track, pattern, data, onNoteSteps, onSelectStep, pla
     if (e.key === ".") edit({ micro: clamp(here.micro + 1, 0, 5) }, "later");
   };
 
-  const at = (e: MouseEvent<HTMLDivElement>): { step: number; pitch: number } => {
+  /** Pointer position as a fractional step position (0 = start of step 1) and a pitch. */
+  const where = (e: MouseEvent<HTMLDivElement>): { x: number; pitch: number } => {
     const r = e.currentTarget.getBoundingClientRect();
     const stepPx = tokenPx(e.currentTarget, "--size-roll-step"), rowPx = tokenPx(e.currentTarget, "--size-roll-row");
-    return { step: clamp(Math.floor((e.clientX - r.left) / stepPx) + 1, 1, STEPS), pitch: clamp(top - Math.floor((e.clientY - r.top) / rowPx), 0, 127) };
+    return { x: clamp((e.clientX - r.left) / stepPx, 0, STEPS - 0.001), pitch: clamp(top - Math.floor((e.clientY - r.top) / rowPx), 0, 127) };
   };
+  const at = (e: MouseEvent<HTMLDivElement>): { step: number; pitch: number } => { const w = where(e); return { step: Math.floor(w.x) + 1, pitch: w.pitch }; };
+
+  // Mouse: drag a note to move it, drag its end to change its length.
+  const [drag, setDrag] = useState<Drag | null>(null);
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>): void => {
+    if (e.button !== 0) return;
+    const w = where(e);
+    const n = all.find((x) => x.note === w.pitch && w.x >= x.step - 1 + x.micro / 6 && w.x < x.step - 1 + x.micro / 6 + Math.max(x.gate / 6, RESIZE_ZONE * 2));
+    if (!n) return;
+    const end = n.step - 1 + n.micro / 6 + n.gate / 6;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({ mode: end - w.x < RESIZE_ZONE ? "resize" : "move", step: n.step, pitch: n.note, x0: w.x, p0: w.pitch, dStep: 0, dPitch: 0, dGate: 0, moved: false });
+    move(n.step, n.note);
+  };
+  const onPointerMove = (e: PointerEvent<HTMLDivElement>): void => {
+    if (!drag) return;
+    const w = where(e);
+    const next = drag.mode === "move"
+      ? { ...drag, dStep: Math.round(w.x - drag.x0), dPitch: w.pitch - drag.p0 }
+      : { ...drag, dGate: Math.round((w.x - drag.x0) * 6) };
+    next.moved = drag.moved || next.dStep !== 0 || next.dPitch !== 0 || next.dGate !== 0;
+    if (next.dStep !== drag.dStep || next.dPitch !== drag.dPitch || next.dGate !== drag.dGate || next.moved !== drag.moved) setDrag(next);
+  };
+  /** The click the browser fires after a drag must not move the cursor. */
+  const dragged = useRef(false);
+  const onPointerUp = (): void => {
+    if (!drag) return;
+    dragged.current = drag.moved;
+    setDrag(null);
+    if (drag.mode === "move" && (drag.dStep || drag.dPitch)) {
+      const change = moveNote(notes, drag.step, drag.pitch, drag.step + drag.dStep, drag.pitch + drag.dPitch);
+      if (change) { onNoteSteps(change, `moved ${noteName(drag.pitch)}`); move(drag.step + drag.dStep, drag.pitch + drag.dPitch); }
+    } else if (drag.mode === "resize" && drag.dGate) {
+      const n = (notes.get(drag.step) ?? []).find((x) => x.note === drag.pitch);
+      const u = n ? updateNote(notes, drag.step, drag.pitch, { gate: clamp(n.gate + drag.dGate, 1, 96) }) : null;
+      if (u) onNoteSteps([u], "length");
+    }
+  };
+  const shown = (n: (typeof all)[number]): (typeof all)[number] => {
+    if (!drag || n.step !== drag.step || n.note !== drag.pitch) return n;
+    return drag.mode === "move" ? { ...n, step: n.step + drag.dStep, note: n.note + drag.dPitch } : { ...n, gate: clamp(n.gate + drag.dGate, 1, 96) };
+  };
+  const lane = useRef<HTMLDivElement | null>(null);
 
   const velocities = Array.from({ length: STEPS }, (_, k) => Math.max(0, ...(notes.get(k + 1) ?? []).map((n) => n.velocity)));
   const described = here ? `${noteSpoken(here.note)}, velocity ${here.velocity}, length ${here.gate} sixths, offset ${here.micro}` : "no note";
@@ -72,18 +121,20 @@ export function PianoRoll({ track, pattern, data, onNoteSteps, onSelectStep, pla
   return (
     <section aria-label={`${track} pattern ${pattern} piano roll`} style={trackStyle(track)}>
       <div className="roll" tabIndex={0} role="application" aria-roledescription="piano roll" aria-label={`${track} pattern ${pattern} piano roll`}
-        aria-describedby="roll-help" onKeyDown={onKeyDown}>
+        aria-describedby="roll-help" onKeyDown={onKeyDown} onScroll={(e) => { if (lane.current) lane.current.scrollLeft = e.currentTarget.scrollLeft; }}>
         <div className="roll-keys" aria-hidden="true">
           {rows.map((n) => <div key={n} className="roll-key" data-black={isBlackKey(n)}>{n % 12 === 0 ? noteName(n) : ""}</div>)}
         </div>
         <div className="roll-body" style={vars({ cols: STEPS })} aria-hidden="true"
-          onClick={(e) => { const c = at(e); move(c.step, c.pitch); }}
+          onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={() => setDrag(null)}
+          data-dragging={drag?.mode}
+          onClick={(e) => { if (dragged.current) { dragged.current = false; return; } const c = at(e); move(c.step, c.pitch); }}
           onDoubleClick={(e) => { const c = at(e); const t = toggleNote(notes, c.step, c.pitch); if (t) onNoteSteps([t], `step ${c.step}`); }}>
           {rows.map((n) => <div key={n} className="roll-row" data-black={isBlackKey(n)} />)}
           {Array.from({ length: STEPS }, (_, k) => (
             <div key={k} className="roll-col" data-beat={k % 4 === 0} data-outside={k + 1 < firstStep || k + 1 > lastStep} style={vars({ x: k })} />
           ))}
-          {all.map((n) => (
+          {all.map(shown).map((n) => (
             <div key={`${n.step}-${n.note}`} className="roll-note" data-selected={n.step === cursor.step && n.note === cursor.pitch}
               style={vars({ x: n.step - 1 + n.micro / 6, y: top - n.note, w: n.gate / 6, alpha: VELOCITY_ALPHA_FLOOR + ((1 - VELOCITY_ALPHA_FLOOR) * n.velocity) / 127 })} />
           ))}
@@ -91,12 +142,14 @@ export function PianoRoll({ track, pattern, data, onNoteSteps, onSelectStep, pla
           <div className="roll-cursor" style={vars({ x: cursor.step - 1, y: top - cursor.pitch })} />
         </div>
       </div>
-      <div className="velocity-lane" aria-label="Velocity per step" role="img">
-        {velocities.map((v, k) => <span key={k} title={v ? `Step ${k + 1}: ${v}` : undefined}><i style={vars({ level: v / 127 })} /></span>)}
+      <div className="velocity-lane-wrap" ref={lane}>
+        <div className="velocity-lane" aria-label="Velocity per step" role="img">
+          {velocities.map((v, k) => <span key={k} title={v ? `Step ${k + 1}: ${v}` : undefined}><i style={vars({ level: v / 127 })} /></span>)}
+        </div>
       </div>
       <p className="visually-hidden" aria-live="polite">Step {cursor.step}, {noteSpoken(cursor.pitch)}: {described}</p>
       <p id="roll-help" className="hint">
-        Arrows move the cursor (Shift: octave). Enter adds or removes a note; double-click does the same. On a note: Alt+arrows move it,
+        Arrows move the cursor (Shift: octave). Enter adds or removes a note; double-click does the same. Drag a note to move it, or its end to change its length. On a note: Alt+arrows move it,
         [ and ] change its length (Shift: a whole step), − and = its velocity, comma and period its offset, Delete removes it.
       </p>
     </section>
