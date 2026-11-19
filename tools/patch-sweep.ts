@@ -54,7 +54,7 @@ if (rules.length !== SIZE - 16) throw new Error(`rule table covers ${rules.lengt
 type Src = { kind: "project" | "bank"; where: string; bytes: Uint8Array };
 const patches: Src[] = [];
 const bankSizes = new Map<number, number>();
-const paddings = { zero: 0, nonzero: 0 };
+const paddings = { none: 0, filler: 0, ctm1: 0, other: 0 };
 
 for (const pack of readdirSync(root).sort()) {
   const dir = join(root, pack);
@@ -74,7 +74,11 @@ for (const pack of readdirSync(root).sort()) {
       for (let i = 0; i * REC < buf.length; i++) {
         const rec = buf.subarray(i * REC, (i + 1) * REC);
         patches.push({ kind: "bank", where: `${pack}/${f}#${i}`, bytes: rec.subarray(0, SIZE) });
-        if (rec.subarray(SIZE).every((b) => b === 0)) paddings.zero++; else paddings.nonzero++;
+        const pad = rec.subarray(SIZE);
+        if (pad.length === 0) paddings.none++;
+        else if (pad.every((b) => b === 0xff)) paddings.filler++;
+        else if (Buffer.from(pad.subarray(0, 4)).toString("latin1") === "CTM1") paddings.ctm1++;
+        else paddings.other++;
       }
     }
   } catch { /* no patches */ }
@@ -114,7 +118,7 @@ const projNameOnlyMatch = proj.filter((p) => bank.some((b) => Buffer.compare(Buf
 
 console.log(`patches: ${patches.length} (${proj.length} project, ${bank.length} bank records)`);
 console.log(`bank file sizes: ${[...bankSizes].map(([s, n]) => `${s} B × ${n}`).join(", ")}`);
-console.log(`bank padding (172 B after the patch): all-zero ${paddings.zero}, non-zero ${paddings.nonzero}`);
+console.log(`bank padding (after the 340 B): none (last record) ${paddings.none}, 0xFF filler ${paddings.filler}, CIRCUIT-HACKS CTM1 ${paddings.ctm1}, other ${paddings.other}`);
 console.log(`fully in range: ${cleanPatches}/${patches.length}; bad names: ${nameBad}`);
 for (const e of nameBadEx) console.log(`  name ex: ${e}`);
 console.log(`project patches identical to some bank record: ${projInBank}/${proj.length}; same name as some bank record: ${projNameOnlyMatch}`);
