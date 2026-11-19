@@ -1,0 +1,9 @@
+node_modules
+dist
+out
+*.log
+.DS_Store
+*.tsbuildinfo
+# Real card data never goes in the repo.
+fixtures/card
+*.ncs

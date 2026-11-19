@@ -1,0 +1,12 @@
+{
+  "name": "@circuit-desk/export",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@circuit-desk/ncs": "*",
+    "fast-xml-parser": "5.12.1"
+  }
+}

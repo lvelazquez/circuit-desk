@@ -1,0 +1,17 @@
+{
+  "name": "@circuit-desk/mcp",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "circuit-desk-mcp": "./src/main.ts"
+  },
+  "dependencies": {
+    "@circuit-desk/export": "*",
+    "@circuit-desk/ncs": "*",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
+  }
+}

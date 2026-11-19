@@ -1,0 +1,23 @@
+{
+  "name": "circuit-desk",
+  "private": true,
+  "type": "module",
+  "description": "Desktop project editor for the Novation Circuit Tracks",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "survey": "node tools/card-survey.ts",
+    "export": "node tools/export.ts",
+    "mcp": "node packages/mcp/src/main.ts",
+    "mcp:smoke": "node tools/mcp-smoke.ts"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}

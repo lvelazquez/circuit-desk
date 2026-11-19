@@ -1,0 +1,10 @@
+{
+  "name": "@circuit-desk/core-service",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@circuit-desk/export": "*",
+    "@circuit-desk/ncs": "*"
+  }
+}
