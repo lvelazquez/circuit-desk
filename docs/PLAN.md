@@ -201,6 +201,7 @@ Illegal input is flagged in the GUI and returned as MCP validation errors.
 
 ## Preview engine (built 2026-11-19): the groundwork for S1/S2
 - **Kickoff brief for the emulator plan:** [`synth-engine-brief.md`](synth-engine-brief.md) (sources, phases E0–E4, owner decisions D-1–D-6, kickoff prompt).
+- **Emulator plan (draft 2026-11-19):** [`synth-engine-plan.md`](synth-engine-plan.md). The 340 B patch matches Novation's documented format on all 1,050 card patches (`tools/patch-sweep.ts`). The stock synth has no FM, granular or other mod engines, which conflicts with the S1 row below; see the plan, §1.2.
 - **`packages/engine`** (Web Audio, runs in the window): `PreviewEngine` = 8 channel strips (instrument → gain) → master gain → limiter. It takes the scheduler's timed messages (the same ones a MIDI port gets, plus `track` and drum `sample`), so playback, the playhead and live edits are shared with MIDI output.
 - **`Instrument` interface** (`types.ts`): `noteOn / noteOff / control / silence / dispose`. Every future sound source plugs in here without touching the scheduler or UI.
   - `Sampler` (drums): the pack's own WAVs (`PCM/NN_Name.wav`, 48 kHz mono), the track's sample from byte 0 of its drum record (checked against sample names on 8 factory projects), per-step sample flips, one sound per track (a new hit cuts the last). Synthetic fallback hits if a sample is missing.
