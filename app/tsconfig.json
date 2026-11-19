@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    // Node types only because the window imports service types; type imports are erased, so no Node code reaches the window.
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src", "electron/api.ts"]
+}

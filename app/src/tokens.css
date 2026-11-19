@@ -1,0 +1,93 @@
+/* Design tokens. Components use these names only, never raw values. */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces: the device's dark body. */
+  --color-surface-body: #101114;
+  --color-surface-panel: #17191e;
+  --color-surface-raised: #20232a;
+  --color-surface-pad: #2a2d35;
+  --color-surface-pad-hover: #343843;
+  --color-surface-key-black: #1b1d22;
+  --color-border-subtle: #2c3038;
+  --color-border-strong: #4a4f5c;
+  --color-text-primary: #eceef3;
+  --color-text-secondary: #a8adbb;
+  --color-text-disabled: #6b7080;
+  --color-text-on-accent: #101114;
+  --color-focus-ring: #ffffff;
+  --color-danger: #ff6b6b;
+  --color-outside-range: #0c0d10;
+
+  /* Track colours (inspired by the device's track buttons; not Novation's palette). */
+  --color-track-synth1: #a78bfa;
+  --color-track-synth2: #f0abfc;
+  --color-track-midi1: #5eead4;
+  --color-track-midi2: #86efac;
+  --color-track-drum1: #fb923c;
+  --color-track-drum2: #fbbf24;
+  --color-track-drum3: #fde047;
+  --color-track-drum4: #f87171;
+
+  /* Spacing. */
+  --space-2xs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+
+  /* Sizes. */
+  --size-pad: 56px;
+  --size-knob: 44px;
+  --size-roll-step: 26px;
+  --size-roll-row: 16px;
+  --size-roll-keys: 52px;
+  --size-xs-note: 4px;
+  --size-focus-ring: 2px;
+  --size-border: 1px;
+  --size-border-strong: 2px;
+  --size-sidebar: 260px;
+  --size-inspector: 380px;
+  --size-track-button: 120px;
+  --size-pattern-pad: 28px;
+  --size-number-input: 64px;
+  --size-note-name: 48px;
+  --size-drum-name: 80px;
+  --size-roll-max-height: 560px;
+  --size-velocity-lane: 64px;
+  --size-velocity-bar: 60%;
+  --radius-pad: 6px;
+  --radius-panel: 10px;
+  --radius-control: 4px;
+
+  /* Type. */
+  --font-family-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-family-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-lg: 18px;
+  --font-weight-regular: 400;
+  --font-weight-strong: 600;
+  --font-tracking-caps: 0.06em;
+  --line-height-body: 1.4;
+
+  /* Emphasis. */
+  --opacity-muted: 0.5;
+  --opacity-soft: 0.7;
+
+  /* Motion: duration and easing are used in named pairs, e.g. Fast/SmoothOut. */
+  --motion-duration-fast: 90ms;
+  --motion-duration-medium: 160ms;
+  --motion-easing-smooth-out: cubic-bezier(0.2, 0, 0, 1);
+  --motion-easing-smooth-in: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-duration-fast: 0ms;
+    --motion-duration-medium: 0ms;
+  }
+}

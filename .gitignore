@@ -7,3 +7,4 @@ out
 # Real card data never goes in the repo.
 fixtures/card
 *.ncs
+app/dist

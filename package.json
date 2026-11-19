@@ -4,15 +4,19 @@
   "type": "module",
   "description": "Desktop project editor for the Novation Circuit Tracks",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "app"
   ],
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p app/tsconfig.json && tsc -p app/tsconfig.electron.json",
     "test": "vitest run",
     "survey": "node tools/card-survey.ts",
     "export": "node tools/export.ts",
     "mcp": "node packages/mcp/src/main.ts",
-    "mcp:smoke": "node tools/mcp-smoke.ts"
+    "mcp:smoke": "node tools/mcp-smoke.ts",
+    "app:build": "vite build --config app/vite.config.ts",
+    "app": "npm run app:build && electron app/electron/main.ts",
+    "app:smoke": "npm run app:build && electron app/scripts/smoke.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
