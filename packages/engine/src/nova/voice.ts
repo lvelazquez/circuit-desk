@@ -189,8 +189,11 @@ export class Voice {
   /** Starts (or, with `legato`, moves) the voice to `note`. `from` is the pitch to glide from. */
   start(p: NovaParams, note: number, velocity: number, frame: number, from: number | null, legato: boolean): void {
     const sr = this.sampleRate;
-    if (!legato || !this.active) {
-      this.started = frame;
+    this.started = frame;
+    // Only a silent voice starts its waveform and filter afresh. A sounding voice (retrigger, a
+    // stolen voice, a mono note change) carries on from where it is, and its envelopes rise from
+    // their current level: restarting mid-cycle was a click.
+    if (!this.active) {
       this.phase[0] = 0; this.phase[1] = 0;
       for (const f of this.svf) f.reset();
     }
@@ -213,10 +216,10 @@ export class Voice {
 
   release(): void { for (const e of this.env) e.release(); }
 
-  /** Fast fade for stealing: a 2 ms release. */
+  /** Fast fade for all-notes-off: the shortest click-free release. */
   kill(p: NovaParams): void {
     const e = p.env[0]!;
-    this.env[0]!.configure(0, e.attack, e.decay, e.sustain, 0.002, this.sampleRate);
+    this.env[0]!.configure(0, e.attack, e.decay, e.sustain, 0, this.sampleRate);
     this.env[0]!.release();
   }
 

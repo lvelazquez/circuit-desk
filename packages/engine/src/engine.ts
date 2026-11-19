@@ -8,6 +8,7 @@ import { Sampler, type FallbackVoice, type SampleLoader } from "./sampler.ts";
 import { STAND_IN_PATCHES, Synth } from "./synth.ts";
 import type { Instrument } from "./types.ts";
 import { NovaInstrument, loadNovaWorklet } from "./nova/instrument.ts";
+import { SOFTCLIP_RANGE, softClipCurve } from "./softclip.ts";
 
 const DRUM_FALLBACK: readonly FallbackVoice[] = ["kick", "snare", "hat", "perc"];
 /** Headroom so eight tracks summed rarely reach the limiter. */
@@ -15,21 +16,34 @@ const MASTER_LEVEL = 0.6;
 
 export interface TrackStrip { gain: GainNode; instrument: Instrument }
 
+/** A message the engine played: its audio time (s), track (0–7), MIDI bytes and drum sample flip. */
+export interface PlayedEvent { time: number; track: number; bytes: number[]; sample?: number }
+
 export class PreviewEngine {
   readonly ctx: BaseAudioContext;
   readonly strips: TrackStrip[];
   private readonly master: GainNode;
   /** Maps the caller's clock (ms) to the audio clock (s). */
   private clock: () => { perfMs: number; audioS: number };
+  /** Told about every message played, at its audio time (for sound reports). */
+  listener: ((e: PlayedEvent) => void) | null = null;
 
-  constructor(ctx: BaseAudioContext, opts: { drumSamples?: readonly number[]; clock?: () => { perfMs: number; audioS: number } } = {}) {
+  /** `output` is where the mix goes (default: the speakers), e.g. the app's capture tap. */
+  constructor(ctx: BaseAudioContext, opts: { drumSamples?: readonly number[]; clock?: () => { perfMs: number; audioS: number }; output?: AudioNode } = {}) {
     this.ctx = ctx;
     this.clock = opts.clock ?? (() => ({ perfMs: performance.now(), audioS: ctx.currentTime }));
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.002; limiter.release.value = 0.1;
     this.master = ctx.createGain();
     this.master.gain.value = MASTER_LEVEL;
-    this.master.connect(limiter).connect(ctx.destination);
+    // Limiter, then a soft clipper so peaks the limiter lets through bend instead of clipping flat.
+    const toShaper = ctx.createGain();
+    toShaper.gain.value = 1 / SOFTCLIP_RANGE;
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = softClipCurve();
+    // 2x: less aliasing while peaks bend, for about 2.7 ms of latency (4x cost about 4 ms).
+    shaper.oversample = "2x";
+    this.master.connect(limiter).connect(toShaper).connect(shaper).connect(opts.output ?? ctx.destination);
     this.strips = Array.from({ length: 8 }, (_, t) => {
       const gain = ctx.createGain();
       gain.connect(this.master);
@@ -78,6 +92,7 @@ export class PreviewEngine {
       if (!strip) continue;
       const time = Math.max(audioS, audioS + (m.at - perfMs) / 1000);
       const kind = (m.bytes[0] ?? 0) & 0xf0, a = m.bytes[1] ?? 0, b = m.bytes[2] ?? 0;
+      this.listener?.({ time, track: m.track, bytes: [...m.bytes], ...(m.sample !== undefined ? { sample: m.sample } : {}) });
       if (kind === 0x90 && b > 0) strip.instrument.noteOn({ time, note: a, velocity: b, ...(m.sample !== undefined ? { sample: m.sample } : {}) });
       else if (kind === 0x80 || kind === 0x90) strip.instrument.noteOff(time, a);
       else if (kind === 0xb0) strip.instrument.control(time, a, b);

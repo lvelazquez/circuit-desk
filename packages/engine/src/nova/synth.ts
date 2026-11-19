@@ -75,8 +75,8 @@ export class NovaSynth {
       return;
     }
     const same = this.voices.find((v) => v.active && v.note === note);
+    // A retriggered or stolen voice is restarted in place (Voice.start keeps it continuous).
     const v = same ?? this.voices.find((x) => !x.active) ?? this.steal();
-    if (same) same.kill(p);
     v.start(p, note, velocity, frame, from, false);
   }
 

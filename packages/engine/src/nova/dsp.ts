@@ -69,6 +69,12 @@ export class Svf {
 
 export type EnvStage = "idle" | "delay" | "attack" | "decay" | "sustain" | "release";
 
+/** Shortest linear attack, seconds: a rise in fewer samples clicks. */
+export const MIN_ATTACK = 0.002;
+/** Shortest exponential decay or release to −60 dB, seconds. Exponential falls are steepest at
+ * their start, so they need a longer floor than the linear attack to stay click-free. */
+export const MIN_FALL = 0.008;
+
 /** ADSR (with an optional delay, for envelope 3): linear attack, exponential decay and release. */
 export class Envelope {
   stage: EnvStage = "idle";
@@ -82,10 +88,11 @@ export class Envelope {
   /** Times in seconds; sustain 0–1. */
   configure(delay: number, attack: number, decay: number, sustain: number, release: number, sampleRate: number): void {
     this.delayLeft = this.stage === "delay" ? this.delayLeft : Math.round(delay * sampleRate);
-    this.attackStep = attack <= 0 ? 1 : 1 / (attack * sampleRate);
+    // Floors so no stage jumps in one sample (a click); they are a declick, not the parameter curves.
+    this.attackStep = 1 / (Math.max(MIN_ATTACK, attack) * sampleRate);
     // Exponential approach: reach 1/1000 of the distance in the given time.
-    this.decayCoef = decay <= 0 ? 0 : Math.exp(Math.log(0.001) / (decay * sampleRate));
-    this.releaseCoef = release <= 0 ? 0 : Math.exp(Math.log(0.001) / (release * sampleRate));
+    this.decayCoef = Math.exp(Math.log(0.001) / (Math.max(MIN_FALL, decay) * sampleRate));
+    this.releaseCoef = Math.exp(Math.log(0.001) / (Math.max(MIN_FALL, release) * sampleRate));
     this.sustain = sustain;
   }
 
