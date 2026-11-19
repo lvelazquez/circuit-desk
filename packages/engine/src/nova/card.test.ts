@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PATCH_SIZE, parsePatch, readBank } from "@circuit-desk/patch";
 import { NovaSynth } from "./synth.ts";
+import { VOICE_GAIN } from "./voice.ts";
 
 const CARD = process.env["CIRCUIT_DESK_CARD"] ?? join(homedir(), "Circuit Desk", "Card copy", "2026-11-19");
 const TRACKS = join(CARD, "Tracks");
@@ -33,8 +34,9 @@ function patches(): { where: string; bytes: Uint8Array }[] {
 }
 
 describe.skipIf(!existsSync(TRACKS))("Nova voice over the card's patches", () => {
-  // Baseline 2026-11-19 (tools/nova-levels.ts): 55 of 1 050 silent on one C4, peak 1.6. The silent
-  // ones take their level from LFOs (E2) or macros (E0.4); the level bound catches runaway gain.
+  // Baseline 2026-11-19 (tools/nova-levels.ts), at VOICE_GAIN 0.6: 37 of 1 050 below 0.001 on one
+  // C4, loudest 4.9 (8 × the voice gain). The quiet ones take their level from LFOs (E2) or macros
+  // (E0.4); the bound, 10 × the voice gain, catches runaway gain such as an unstable filter.
   it("every patch renders finite and bounded, and silent patches stay rare", () => {
     const all = patches();
     const silent: string[] = [];
@@ -46,7 +48,7 @@ describe.skipIf(!existsSync(TRACKS))("Nova voice over the card's patches", () =>
       s.process(out);
       let peak = 0;
       for (const v of out) { expect(Number.isFinite(v), p.where).toBe(true); peak = Math.max(peak, Math.abs(v)); }
-      expect(peak, p.where).toBeLessThan(2);
+      expect(peak, p.where).toBeLessThan(10 * VOICE_GAIN);
       if (peak < 1e-3) silent.push(p.where);
     }
     expect(silent.length / all.length).toBeLessThan(0.06);

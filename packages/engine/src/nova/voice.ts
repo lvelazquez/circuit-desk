@@ -9,8 +9,14 @@ import { Envelope, Noise, Svf, type SvfMode, saw, sawPulse, sine, triangle } fro
 export const BLOCK = 32;
 /** Synth 1 and 2 share 12 voice slots on the device (NOTAS:4397): 6 each. */
 export const VOICES = 6;
-/** Headroom so a 6-voice chord through the mixer rarely clips. */
-const VOICE_GAIN = 0.2;
+/**
+ * Output level of one voice. Calibrated (a guess until plan step E4 measures the device) so the
+ * default patch, one saw at full level, at velocity 100 peaks near −4 dBFS: level with a pack drum
+ * sample at the same velocity, which the sampler plays at (100/127)^1.5 ≈ −3 dB. Chords add up
+ * above that; the engine's master gain and limiter take care of the sum, as they do for drums.
+ * (It was 0.2, which left synths 9–20 dB under the drums, e.g. Hello Tracks: tools/mix-levels.ts.)
+ */
+export const VOICE_GAIN = 0.6;
 /**
  * Macros are off until plan step E0.4 reads the offset formula from the firmware. The guessed
  * formula in packages/patch/macros.ts made the card's 1 050 patches worse overall (tools/nova-levels.ts,
