@@ -179,8 +179,15 @@ export function createServer(service = new ProjectService()): McpServer {
   server.registerTool("export_als", {
     title: "Export Ableton Live set",
     description: `Writes an Ableton Live 12 set to ${service.paths.exports}: Session rows per scene and per pattern, and the arrangement laid out in time.`,
-    inputSchema: { project, source, repeats, arrangement: z.boolean().optional().describe("Also fill the Arrangement view; default true") }, annotations: WRITE,
-  }, ({ project: id, source: s, repeats: r, arrangement }) => run(() => service.exportAls(id, { ...(s ? { source: s } : {}), ...(r ? { repeats: r } : {}), ...(arrangement !== undefined ? { arrangement } : {}) })));
+    inputSchema: {
+      project, source, repeats,
+      arrangement: z.boolean().optional().describe("Also fill the Arrangement view; default true"),
+      instruments: z.enum(["live", "none"]).optional().describe("live (default): Live's starter kit and synths, drums on the kit's keys; none: empty tracks on the Circuit's own notes, to route to the Circuit"),
+    },
+    annotations: WRITE,
+  }, ({ project: id, source: s, repeats: r, arrangement, instruments }) => run(() => service.exportAls(id, {
+    ...(s ? { source: s } : {}), ...(r ? { repeats: r } : {}), ...(arrangement !== undefined ? { arrangement } : {}), ...(instruments ? { instruments } : {}),
+  })));
 
   return server;
 }

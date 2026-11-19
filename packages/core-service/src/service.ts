@@ -305,12 +305,12 @@ export class ProjectService {
     return { path, notes: a.warnings };
   }
 
-  exportAls(id: string, opts: { source?: "scenes" | "current"; repeats?: number; arrangement?: boolean; liveApp?: string } = {}): { path: string; notes: string[] } {
+  exportAls(id: string, opts: { source?: "scenes" | "current"; repeats?: number; arrangement?: boolean; instruments?: "live" | "none"; liveApp?: string } = {}): { path: string; notes: string[] } {
     const o = this.get(id), a = this.arrange(o, opts);
     this.live ??= X.loadLiveTemplates(opts.liveApp);
     const path = join(this.exportDir(o), `${basename(o.path).replace(/\.ncs$/i, "")}.als`);
     let bytes: Uint8Array;
-    try { bytes = X.writeAls(a, this.live, { arrangement: opts.arrangement ?? true }); } catch (e) { throw new ServiceError((e as Error).message); }
+    try { bytes = X.writeAls(a, this.live, { arrangement: opts.arrangement ?? true, instruments: opts.instruments ?? "live" }); } catch (e) { throw new ServiceError((e as Error).message); }
     writeFileSync(path, bytes);
     return { path, notes: a.warnings };
   }

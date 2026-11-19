@@ -29,7 +29,7 @@ function expectedArrangement(a: Arrangement, track: number): { pitch: number; st
 }
 
 describe.skipIf(!existsSync(LIVE))("Live set", () => {
-  const tpl = existsSync(LIVE) ? loadLiveTemplates(LIVE) : { set: "", clip: "" };
+  const tpl = existsSync(LIVE) ? loadLiveTemplates(LIVE) : { set: "", clip: "", instruments: {} };
 
   it("reads back with tempo, scenes, session clips and arrangement notes", () => {
     const b = blankProject("Live & <test>");
@@ -52,7 +52,22 @@ describe.skipIf(!existsSync(LIVE))("Live set", () => {
     expect(s1.session[3]).toBeNull();
     expect(s1.arrangement.map((c) => [c.name, c.time])).toEqual([["Synth 1 · 1", 0], ["Synth 1 · 2", 4]]);
     expect(s1.arrangement.flatMap((c) => c.notes)).toEqual(expectedArrangement(a, 0));
-    expect(r.tracks[1]!.arrangement.flatMap((c) => c.notes)).toEqual([{ pitch: 62, start: 0.5, dur: 0.0625, velocity: 80 }, { pitch: 62, start: 4.5, dur: 0.0625, velocity: 80 }]);
+    // Drum 2 plays the snare of Live's starter kit.
+    expect(r.tracks[1]!.arrangement.flatMap((c) => c.notes)).toEqual([{ pitch: 38, start: 0.5, dur: 0.0625, velocity: 80 }, { pitch: 38, start: 4.5, dur: 0.0625, velocity: 80 }]);
+  });
+
+  it("loads Live's starter instruments, or none", () => {
+    expect(Object.keys(tpl.instruments).sort()).toEqual(["bass", "drums", "keys", "lead"]);
+    const b = blankProject();
+    putNote(b, 1, 0, 0, 40, 6, 100);
+    b[N.drumPatternOffset(0, 0)] = 100;
+    const a = arrange(N.openProject(b));
+    const live = buildAlsXml(a, tpl);
+    expect(live).toContain("<DrumGroupDevice");
+    expect(readAlsXml(live).tracks[1]!.session[1]!.notes[0]!.pitch).toBe(36);
+    const none = buildAlsXml(a, tpl, { instruments: "none" });
+    expect(none).not.toContain("<DrumGroupDevice");
+    expect(readAlsXml(none).tracks[1]!.session[1]!.notes[0]!.pitch).toBe(60);
   });
 
   it("can leave the arrangement empty", () => {
@@ -78,7 +93,7 @@ describe.skipIf(!existsSync(LIVE))("Live set", () => {
         const a = arrange(N.openProject(new Uint8Array(readFileSync(f))));
         if (!a.tracks.some((t) => t.notes.length)) continue;
         try {
-          const r = readAlsXml(buildAlsXml(a, tpl));
+          const r = readAlsXml(buildAlsXml(a, tpl, { instruments: "none" }));
           const used = a.tracks.map((t, i) => ({ t, i })).filter(({ t }) => t.notes.length || t.patterns.some((p) => p.notes.length));
           used.forEach(({ i }, k) => {
             const got = r.tracks[k]!.arrangement.flatMap((c) => c.notes.map((n) => ({ ...n, start: Math.round(n.start * 1e6) / 1e6, dur: Math.round(n.dur * 1e6) / 1e6 })));

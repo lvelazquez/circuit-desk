@@ -15,11 +15,38 @@ import { sceneLabel } from "./smf.ts";
 
 export const DEFAULT_LIVE_APP = "/Applications/Ableton Live 12 Suite.app";
 
+export type InstrumentRole = "drums" | "bass" | "lead" | "keys";
+
 export interface LiveTemplates {
   /** Live's DefaultLiveSet, as XML. */
   set: string;
   /** A MIDI clip taken from one of Live's own sets, as XML. */
   clip: string;
+  /** Device chains (the inside of a track's <Devices>) taken from Live's Quick Start Beat set. */
+  instruments: Partial<Record<InstrumentRole, string>>;
+}
+
+/** Which of Live's starter instruments each Circuit track plays through. */
+export const TRACK_ROLES: readonly InstrumentRole[] = ["keys", "bass", "lead", "keys", "drums", "drums", "drums", "drums"];
+/**
+ * Keys of the Quick Start Beat drum kit for Circuit Drum 1–4 (kick, snare, closed hat, perc, as
+ * the Circuit's default kit). Live stores a pad's note as 128 − key: kick "92" = 36.
+ */
+export const LIVE_KIT_KEYS = [36, 38, 42, 47] as const;
+
+/** The children of the track's own <Devices> element (after the freeze sequencer), with nesting. */
+export function trackDevices(track: string): string | null {
+  const from = track.indexOf("</FreezeSequencer>");
+  const open = track.indexOf("<Devices>", from < 0 ? 0 : from);
+  if (open < 0) return null;
+  const re = /<Devices>|<\/Devices>/g;
+  re.lastIndex = open;
+  let depth = 0;
+  for (let m = re.exec(track); m; m = re.exec(track)) {
+    depth += m[0] === "<Devices>" ? 1 : -1;
+    if (depth === 0) return track.slice(open + "<Devices>".length, m.index);
+  }
+  return null;
 }
 
 /** Reads the templates out of an installed Live 12 (personal use; nothing of Live's is stored). */
@@ -29,12 +56,25 @@ export function loadLiveTemplates(app = DEFAULT_LIVE_APP): LiveTemplates {
   const beat = gunzipSync(readFileSync(join(res, "Core Library", "Templates", "Quick Start Beat.als"))).toString("utf8");
   const clip = /<MidiClip Id="\d+" Time="0">[\s\S]*?<\/MidiClip>/.exec(beat)?.[0];
   if (!clip) throw new Error("no MIDI clip found in Live's Quick Start Beat template");
-  return { set, clip };
+  const instruments: LiveTemplates["instruments"] = {};
+  for (const m of beat.matchAll(/<MidiTrack Id="\d+"[\s\S]*?<\/MidiTrack>/g)) {
+    const name = /<EffectiveName Value="([^"]*)"/.exec(m[0])?.[1] ?? "";
+    const role: InstrumentRole | null = /Drum/i.test(name) ? "drums" : /Bass/i.test(name) ? "bass" : /Lead/i.test(name) ? "lead" : /Keys/i.test(name) ? "keys" : null;
+    const devices = role && !instruments[role] ? trackDevices(m[0]) : null;
+    if (role && devices?.trim()) instruments[role] = devices;
+  }
+  return { set, clip, instruments };
 }
 
 export interface AlsOptions {
   /** Also lay the patterns out in the Arrangement view. Default true. */
   arrangement?: boolean;
+  /**
+   * "live": each track plays one of Live's starter instruments, and drum hits move to that kit's
+   * keys (LIVE_KIT_KEYS). "none": empty tracks, drum hits on the Circuit's own notes, for routing
+   * to the Circuit. Default "live" when the templates have the instruments.
+   */
+  instruments?: "live" | "none";
   /** Leave out tracks with no notes. Default true. */
   skipEmpty?: boolean;
 }
@@ -102,21 +142,26 @@ export function buildAlsXml(a: Arrangement, tpl: LiveTemplates, opts: AlsOptions
   const sceneTpl = /<Scene Id="\d+">[\s\S]*?<\/Scene>/.exec(tpl.set)?.[0];
   if (!track || !sceneTpl) throw new Error("Live template: no MIDI track or scene");
 
+  const useLive = (opts.instruments ?? "live") === "live";
+  const missing = useLive ? [...new Set(used.map(({ i }) => TRACK_ROLES[i]!).filter((r) => !tpl.instruments[r]))] : [];
+  if (missing.length) throw new Error(`Live's Quick Start Beat set has no ${missing.join(", ")} instrument; export with instruments: "none"`);
+  const keyed = (i: number, notes: readonly MidiNote[]): MidiNote[] => (useLive && i >= 4 ? notes.map((n) => ({ ...n, pitch: LIVE_KIT_KEYS[i - 4] ?? n.pitch })) : [...notes]);
+
   const rowNames = [...firstPass.map((s) => sceneLabel(s.scene)), ...Array.from({ length: 8 }, (_, k) => `Pattern ${k + 1}`)];
   const tracksXml = used.map(({ t, i }, k) => {
     const colour = TRACK_COLOURS[i] ?? 0;
     let clipId = 0;
     const sceneClips = firstPass.map((s) => {
-      const notes = notesIn(t, s.tick, s.length);
+      const notes = keyed(i, notesIn(t, s.tick, s.length));
       return notes.length ? clipXml(tpl.clip, { id: clipId++, time: 0, name: `${t.name} · ${sceneLabel(s.scene)}`, colour, length: s.length, loop: true, notes, ppq: a.ppq }) : null;
     });
     const patternClips = t.patterns.map((p, n) =>
-      p.notes.length ? clipXml(tpl.clip, { id: clipId++, time: 0, name: `${t.name} · ${n + 1}`, colour, length: p.length, loop: true, notes: p.notes, ppq: a.ppq }) : null);
+      p.notes.length ? clipXml(tpl.clip, { id: clipId++, time: 0, name: `${t.name} · ${n + 1}`, colour, length: p.length, loop: true, notes: keyed(i, p.notes), ppq: a.ppq }) : null);
     const slots = [...sceneClips, ...patternClips].map((c, n) => (c ? fullSlot(n, c) : emptySlot(n))).join("");
     const freeze = rowNames.map((_, n) => emptySlot(n)).join("");
     const arranged = withArrangement
       ? t.plays.map((pl) => ({ pl, notes: notesIn(t, pl.tick, pl.length) })).filter((x) => x.notes.length).map(({ pl, notes }) =>
-        clipXml(tpl.clip, { id: clipId++, time: pl.tick, name: `${t.name} · ${pl.pattern + 1}`, colour, length: pl.length, loop: false, notes: notes.map((n) => ({ ...n, tick: n.tick + pl.tick })), ppq: a.ppq })).join("")
+        clipXml(tpl.clip, { id: clipId++, time: pl.tick, name: `${t.name} · ${pl.pattern + 1}`, colour, length: pl.length, loop: false, notes: keyed(i, notes.map((n) => ({ ...n, tick: n.tick + pl.tick }))), ppq: a.ppq })).join("")
       : "";
     let x = must(track, /<MidiTrack Id="\d+"/, `<MidiTrack Id="${1000 + k}"`, "the track id");
     x = must(x, /<EffectiveName Value="[^"]*" \/>(\s*)<UserName Value="[^"]*" \/>/, `<EffectiveName Value="${esc(t.name)}" />$1<UserName Value="${esc(t.name)}" />`, "the track name");
@@ -126,6 +171,7 @@ export function buildAlsXml(a: Arrangement, tpl: LiveTemplates, opts: AlsOptions
     x = x.replace(/<ClipSlotList>[\s\S]*?<\/ClipSlotList>/g, () => `<ClipSlotList>${list++ === 0 ? slots : freeze}</ClipSlotList>`);
     if (list !== 2) throw new Error(`Live template: expected 2 clip slot lists in a MIDI track, found ${list}`);
     x = must(x, /(<ClipTimeable>\s*<ArrangerAutomation>\s*)<Events \/>/, `$1<Events>${arranged}</Events>`, "the arrangement lane");
+    if (useLive) x = must(x, /<Devices \/>/, `<Devices>${tpl.instruments[TRACK_ROLES[i]!]}</Devices>`, "the track's device chain");
     return ids.fresh(x);
   });
 

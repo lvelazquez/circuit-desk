@@ -1,5 +1,5 @@
 // Exports Circuit Tracks projects as a multitrack MIDI file and an Ableton Live 12 set.
-// Usage: node tools/export.ts <project.ncs>... [--out <dir>] [--current] [--repeats N] [--no-arrangement]
+// Usage: node tools/export.ts <project.ncs>... [--out <dir>] [--current] [--repeats N] [--no-arrangement] [--no-instruments]
 // Output goes to ~/Circuit Desk/Exports/<project file name>/ unless --out is given. Never writes beside the input.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -14,7 +14,8 @@ const out = option("--out") ?? join(homedir(), "Circuit Desk", "Exports");
 const repeats = Number(option("--repeats") ?? 1);
 const current = flag("--current");
 const arrangement = !flag("--no-arrangement");
-if (!args.length) { console.error("usage: node tools/export.ts <project.ncs>... [--out <dir>] [--current] [--repeats N] [--no-arrangement]"); process.exit(2); }
+const instruments = flag("--no-instruments") ? "none" as const : "live" as const;
+if (!args.length) { console.error("usage: node tools/export.ts <project.ncs>... [--out <dir>] [--current] [--repeats N] [--no-arrangement] [--no-instruments]"); process.exit(2); }
 
 const tpl = loadLiveTemplates();
 for (const file of args) {
@@ -25,7 +26,7 @@ for (const file of args) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${stem}.mid`), writeSmf(a));
   const hasNotes = a.tracks.some((t) => t.notes.length);
-  if (hasNotes) writeFileSync(join(dir, `${stem}.als`), writeAls(a, tpl, { arrangement }));
+  if (hasNotes) writeFileSync(join(dir, `${stem}.als`), writeAls(a, tpl, { arrangement, instruments }));
   const bars = a.length / a.ppq / 4;
   const report = [
     `${a.name}: ${a.bpm} BPM, ${a.scenes.length} section(s), ${bars} bars`,
