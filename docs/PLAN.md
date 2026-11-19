@@ -200,6 +200,7 @@ Illegal input is flagged in the GUI and returned as MCP validation errors.
 - **Blocker:** the 12 synth lanes aren't documented yet. One pointer: table `0x08059080` gives ids 20–27 = MIDI 1 lanes 0–7 and 30–37 = MIDI 2. It is resolved in the decode track by controlled diffs: record one knob's automation on the device, save, and diff the files.
 
 ## Preview engine (built 2026-11-19): the groundwork for S1/S2
+- **Kickoff brief for the emulator plan:** [`synth-engine-brief.md`](synth-engine-brief.md) (sources, phases E0–E4, owner decisions D-1–D-6, kickoff prompt).
 - **`packages/engine`** (Web Audio, runs in the window): `PreviewEngine` = 8 channel strips (instrument → gain) → master gain → limiter. It takes the scheduler's timed messages (the same ones a MIDI port gets, plus `track` and drum `sample`), so playback, the playhead and live edits are shared with MIDI output.
 - **`Instrument` interface** (`types.ts`): `noteOn / noteOff / control / silence / dispose`. Every future sound source plugs in here without touching the scheduler or UI.
   - `Sampler` (drums): the pack's own WAVs (`PCM/NN_Name.wav`, 48 kHz mono), the track's sample from byte 0 of its drum record (checked against sample names on 8 factory projects), per-step sample flips, one sound per track (a new hit cuts the last). Synthetic fallback hits if a sample is missing.
