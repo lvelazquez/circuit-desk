@@ -1,47 +1,55 @@
 // Macro knobs, applied as the firmware does: on the ARM side, in the 0–127 parameter domain,
-// value + offset clamped (getter 0x080360B2, NOTAS:2227). The DSP never sees a macro.
+// value + offset clamped (getter 0x080360B2). The DSP never sees a macro.
 //
-// THE OFFSET FORMULA IS A GUESS until plan step E0.4 reads it from the ARM routine at 0x0803608A:
-// offset = depth (−1…+1) × 127 × t, with t = the knob's travel between the slot's start and end
-// positions (0 below start, 1 above end). It explains factory patches that leave a level at 0 and
-// let a macro at its stored position supply it (e.g. "Juno Strings": macro 3 at 127 → Osc 2 level).
+// The formula below is read from the stock 1.2.1 firmware (the routine at 0x08035F84, which
+// 0x0803602A calls once per macro; plan step E0.4):
+//   - a slot's stored destination 0 means "no destination"; 1–70 select destinations 0–69
+//     (`subs r1, r0, #1` after the zero test), so MACRO_DESTINATION_IDS is indexed by stored − 1;
+//   - range = |end − start|, or 1 when they are equal;
+//   - travel = position − start, clamped to 0…range (so a slot whose end is below its start
+//     still rises as the knob goes up from `start`; it is not mirrored);
+//   - offset = travel × (depth − 64) × 2 / range, truncated toward zero (signed divide);
+//   - offsets of all slots with the same destination add up, then value + offset is clamped.
+// Not yet compared with a device: the reading is static, from the disassembly.
 import { MACRO_DESTINATION_IDS, param } from "./format.ts";
 
-export const MACRO_FORMULA_STATUS = "guess (plan E0.4)";
+export const MACRO_FORMULA_STATUS = "read from the firmware (plan E0.4); no device check yet";
 
-const bipolar = (v: number): number => (v >= 64 ? (v - 64) / 63 : (v - 64) / 64);
+/** The patch parameter a slot's stored destination byte moves, or null for 0 (none) and unknown values. */
+export function macroDestinationId(stored: number): string | null {
+  return stored >= 1 ? MACRO_DESTINATION_IDS[stored - 1] ?? null : null;
+}
 
-/** One slot's offset at knob `position`. */
+/** One slot's offset at knob `position`, in parameter steps (−128…+126). */
 export function macroSlotOffset(position: number, start: number, end: number, depth: number): number {
-  let t: number;
-  if (end === start) t = position >= start ? 1 : 0;
-  else if (end > start) t = (position - start) / (end - start);
-  else t = (start - position) / (start - end);
-  t = Math.min(1, Math.max(0, t));
-  return bipolar(depth) * 127 * t;
+  const range = Math.abs(end - start) || 1;
+  const travel = Math.min(range, Math.max(0, position - start));
+  return Math.trunc((travel * (depth - 64) * 2) / range) || 0; // never −0
 }
 
 /**
  * The patch's values with its 8 macros applied. `positions` overrides the stored knob positions
  * (the track's macro store, which automation lanes 1–8 write; NOTAS:1568).
+ *
+ * The firmware clamps the result to 0–127. We also clamp to the parameter's own range, which the
+ * firmware does elsewhere (not traced); without it a level stored in dB could leave its table.
  */
 export function applyMacros(values: Readonly<Record<string, number>>, positions?: readonly (number | undefined)[]): Record<string, number> {
   const offsets = new Map<string, number>();
   for (let k = 0; k < 8; k++) {
     const pos = positions?.[k] ?? values[`macro${k + 1}.position`] ?? 0;
     for (const s of ["a", "b", "c", "d"]) {
-      const dest = values[`macro${k + 1}.${s}.destination`] ?? 0;
-      const id = MACRO_DESTINATION_IDS[dest];
-      const depth = values[`macro${k + 1}.${s}.depth`] ?? 64;
-      if (!id || depth === 64) continue; // destination 70 does nothing; depth 0 adds nothing
-      const off = macroSlotOffset(pos, values[`macro${k + 1}.${s}.start`] ?? 0, values[`macro${k + 1}.${s}.end`] ?? 127, depth);
+      const id = macroDestinationId(values[`macro${k + 1}.${s}.destination`] ?? 0);
+      if (!id) continue;
+      const off = macroSlotOffset(pos, values[`macro${k + 1}.${s}.start`] ?? 0, values[`macro${k + 1}.${s}.end`] ?? 127, values[`macro${k + 1}.${s}.depth`] ?? 64);
       offsets.set(id, (offsets.get(id) ?? 0) + off);
     }
   }
   const out = { ...values };
   for (const [id, off] of offsets) {
+    if (off === 0) continue;
     const p = param(id);
-    const v = Math.round((values[id] ?? p.default) + off);
+    const v = (values[id] ?? p.default) + off;
     out[id] = Math.min(p.max, Math.max(p.min, Math.min(127, Math.max(0, v))));
   }
   return out;

@@ -83,7 +83,10 @@ export const MOD_DESTINATIONS: readonly string[] = [
   "Filter drive", "Filter frequency", "Filter resonance", "LFO 1 rate", "LFO 2 rate", "Amp env decay", "Filter env decay",
 ];
 
-/** The 70 macro destinations (0–69). The guide allows 70, which the firmware's loop never reaches (NOTAS:2227). */
+/**
+ * The 70 macro destinations, in the firmware's order. A slot stores 0 for "none" and 1–70 for these
+ * (index = stored − 1, see macros.ts), which is why the guide gives the range as 0–70.
+ */
 export const MACRO_DESTINATIONS: readonly string[] = [
   "Portamento rate", "Post FX level",
   ...["wave interpolate", "pulse width index", "virtual sync depth", "density", "density detune", "semitones", "cents"].map((n) => `Osc 1 ${n}`),

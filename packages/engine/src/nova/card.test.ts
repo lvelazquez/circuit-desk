@@ -34,9 +34,9 @@ function patches(): { where: string; bytes: Uint8Array }[] {
 }
 
 describe.skipIf(!existsSync(TRACKS))("Nova voice over the card's patches", () => {
-  // Baseline 2026-11-19 (tools/nova-levels.ts), at VOICE_GAIN 0.6: 37 of 1 050 below 0.001 on one
-  // C4, loudest 4.9 (8 × the voice gain). The quiet ones take their level from LFOs (E2) or macros
-  // (E0.4); the bound, 10 × the voice gain, catches runaway gain such as an unstable filter.
+  // With macros applied (the firmware's formula) most patches sound on one C4; the few that stay
+  // quiet take their level from LFOs (plan E2). The bound, 10 × the voice gain, catches runaway
+  // gain such as an unstable filter. Levels over real notes: tools/synth-audit.ts.
   it("every patch renders finite and bounded, and silent patches stay rare", () => {
     const all = patches();
     const silent: string[] = [];

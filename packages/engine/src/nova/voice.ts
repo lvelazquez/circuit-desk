@@ -10,20 +10,20 @@ export const BLOCK = 32;
 /** Synth 1 and 2 share 12 voice slots on the device (NOTAS:4397): 6 each. */
 export const VOICES = 6;
 /**
- * Output level of one voice. Calibrated (a guess until plan step E4 measures the device) so the
- * default patch, one saw at full level, at velocity 100 peaks near −4 dBFS: level with a pack drum
- * sample at the same velocity, which the sampler plays at (100/127)^1.5 ≈ −3 dB. Chords add up
- * above that; the engine's master gain and limiter take care of the sum, as they do for drums.
- * (It was 0.2, which left synths 9–20 dB under the drums, e.g. Hello Tracks: tools/mix-levels.ts.)
+ * Output level of one voice: a guess until plan step E4 measures the device. Set from the card's
+ * own projects (tools/synth-audit.ts, 298 synth parts playing their real notes, macros applied):
+ * at 0.4 the median part peaks near −5 dBFS, next to pack drum samples that play near −3 dBFS.
+ * Chords add up above that; the master gain and limiter take the sum, as they do for drums.
+ * History: 0.2, then 0.6 while macros were off and many filters stayed closed; 0.6 with macros on
+ * put the median part at −1.5 dBFS and a quarter of them above +4.6.
  */
-export const VOICE_GAIN = 0.6;
+export const VOICE_GAIN = 0.4;
 /**
- * Macros are off until plan step E0.4 reads the offset formula from the firmware. The guessed
- * formula in packages/patch/macros.ts made the card's 1 050 patches worse overall (tools/nova-levels.ts,
- * 2026-11-19: 120 silent and a peak of 4.6 with it, 55 silent and 1.6 without), though it fixes
- * patches such as "Juno Strings" that take their oscillator levels from a macro.
+ * Macros on: the offset formula is read from the firmware (packages/patch/macros.ts, plan E0.4).
+ * Many patches store a closed filter or a silent oscillator and let a macro at its stored position
+ * open it, so without macros they play silent (tools/synth-audit.ts).
  */
-export const APPLY_MACROS = false;
+export const APPLY_MACROS = true;
 
 /** How far envelope 2 at full depth moves the cutoff, semitones (a guess, like the curves). */
 const ENV2_RANGE = 60;
