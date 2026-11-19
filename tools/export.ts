@@ -27,6 +27,7 @@ for (const file of args) {
   writeFileSync(join(dir, `${stem}.mid`), writeSmf(a));
   const hasNotes = a.tracks.some((t) => t.notes.length);
   if (hasNotes) writeFileSync(join(dir, `${stem}.als`), writeAls(a, tpl, { arrangement, instruments }));
+  if (hasNotes && instruments === "live") writeFileSync(join(dir, `${stem} (play-along).als`), writeAls(a, tpl, { arrangement, instruments, listen: true }));
   const bars = a.length / a.ppq / 4;
   const report = [
     `${a.name}: ${a.bpm} BPM, ${a.scenes.length} section(s), ${bars} bars`,

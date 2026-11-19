@@ -7,17 +7,22 @@ import { call } from "./desk.ts";
 
 const PUMP_MS = 25;
 const PORT_KEY = "circuit-desk.midi-output";
+const TARGET_KEY = "circuit-desk.play-target";
+
+/** circuit: the Circuit's own channels and drum notes. live: the play-along Live set's. */
+export type PlayTarget = "circuit" | "live";
 
 export interface PortInfo { id: string; name: string }
 export type Heads = ({ pattern: number; step: number } | null)[];
 
-function remembered(): string | null { try { return localStorage.getItem(PORT_KEY); } catch { return null; } }
-function remember(id: string): void { try { localStorage.setItem(PORT_KEY, id); } catch { /* per-viewer convenience only */ } }
+function remembered(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
+function remember(key: string, v: string): void { try { localStorage.setItem(key, v); } catch { /* a per-viewer convenience only */ } }
 
 export function usePlayer(projectId: string | null, version: number) {
   const [access, setAccess] = useState<MIDIAccess | null>(null);
   const [ports, setPorts] = useState<PortInfo[]>([]);
-  const [portId, setPortId] = useState<string | null>(remembered());
+  const [portId, setPortId] = useState<string | null>(remembered(PORT_KEY));
+  const [target, setTarget] = useState<PlayTarget>(remembered(TARGET_KEY) === "live" ? "live" : "circuit");
   const [playing, setPlaying] = useState(false);
   const [clock, setClock] = useState(false);
   const [heads, setHeads] = useState<Heads>([]);
@@ -46,14 +51,14 @@ export function usePlayer(projectId: string | null, version: number) {
     if (!projectId) return;
     if (!output()) { setError("Choose a MIDI output first"); return; }
     try {
-      const a = await call("arrangement", projectId, { source: "current" });
+      const a = await call("arrangement", projectId, { source: "current", target });
       if (!a.tracks.some((t) => t.notes.length)) { setError("Nothing to play: the current patterns have no notes"); return; }
       arr.current = a;
       const s = new Schedule(a, { clock });
       send(s.play(performance.now()));
       sched.current = s; setPlaying(true); setError(null);
     } catch (e) { setError((e as Error).message); }
-  }, [projectId, output, clock, send]);
+  }, [projectId, output, clock, send, target]);
 
   // Pump the schedule and move the playhead.
   useEffect(() => {
@@ -77,7 +82,7 @@ export function usePlayer(projectId: string | null, version: number) {
   useEffect(() => {
     if (!playing || !projectId) return;
     let live = true;
-    void call("arrangement", projectId, { source: "current" }).then((a) => {
+    void call("arrangement", projectId, { source: "current", target }).then((a) => {
       const old = sched.current;
       if (!live || !old) return;
       const now = performance.now(), at = old.position(now) % a.length;
@@ -92,6 +97,7 @@ export function usePlayer(projectId: string | null, version: number) {
   // Opening another project stops playback.
   useEffect(() => () => stop(), [projectId]);
 
-  const choosePort = (id: string): void => { if (playing) stop(); setPortId(id || null); if (id) remember(id); };
-  return { ports, portId, choosePort, playing, play, stop, clock, setClock, heads, error };
+  const choosePort = (id: string): void => { if (playing) stop(); setPortId(id || null); if (id) remember(PORT_KEY, id); };
+  const chooseTarget = (t: PlayTarget): void => { if (playing) stop(); setTarget(t); remember(TARGET_KEY, t); };
+  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error };
 }

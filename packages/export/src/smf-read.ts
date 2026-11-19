@@ -1,6 +1,6 @@
 // A minimal Standard MIDI File reader, for tests and for checking exports.
 export interface ReadNote { track: number; channel: number; pitch: number; velocity: number; tick: number; dur: number }
-export interface ReadSmf { format: number; ppq: number; tracks: { name: string; endTick: number }[]; notes: ReadNote[]; tempos: { tick: number; bpm: number }[]; markers: { tick: number; text: string }[]; problems: string[] }
+export interface ReadSmf { format: number; ppq: number; tracks: { name: string; endTick: number }[]; notes: ReadNote[]; ccs: { track: number; channel: number; tick: number; cc: number; value: number }[]; tempos: { tick: number; bpm: number }[]; markers: { tick: number; text: string }[]; problems: string[] }
 
 export function readSmf(b: Uint8Array): ReadSmf {
   let p = 0;
@@ -11,7 +11,7 @@ export function readSmf(b: Uint8Array): ReadSmf {
   const vlq = (): number => { let v = 0, c: number; do { c = u8(); v = (v << 7) | (c & 127); } while (c & 128); return v; };
   if (id() !== "MThd" || u32() !== 6) throw new Error("not a MIDI file");
   const format = u16(), ntracks = u16(), ppq = u16();
-  const out: ReadSmf = { format, ppq, tracks: [], notes: [], tempos: [], markers: [], problems: [] };
+  const out: ReadSmf = { format, ppq, tracks: [], notes: [], ccs: [], tempos: [], markers: [], problems: [] };
   for (let t = 0; t < ntracks; t++) {
     if (id() !== "MTrk") throw new Error(`track ${t}: bad chunk`);
     const len = u32();
@@ -42,7 +42,8 @@ export function readSmf(b: Uint8Array): ReadSmf {
           open.delete(k);
           out.notes.push({ track: t, channel: ch, pitch: key, velocity: on.velocity, tick: on.tick, dur: tick - on.tick });
         }
-      } else if (kind === 0xc0 || kind === 0xd0) u8();
+      } else if (kind === 0xb0) { const cc = u8(), value = u8(); out.ccs.push({ track: t, channel: ch, tick, cc, value }); }
+      else if (kind === 0xc0 || kind === 0xd0) u8();
       else { u8(); u8(); }
     }
     if (open.size) out.problems.push(`track ${t}: ${open.size} notes never end`);

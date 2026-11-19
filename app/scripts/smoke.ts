@@ -6,13 +6,16 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SocketClient } from "@circuit-desk/core-service";
-import { openProject, readNotePattern } from "@circuit-desk/ncs";
+import { LANE0, notePatternOffset, openProject, readNotePattern } from "@circuit-desk/ncs";
 import { blankProject } from "../../packages/ncs/src/testing.ts";
 
 const home = mkdtempSync(path.join(tmpdir(), "circuit-desk-smoke-"));
 const file = path.join(home, "Card copy", "Tracks", "01_Smoke", "Sessions", "01_Smoke.ncs");
 mkdirSync(path.dirname(file), { recursive: true });
-writeFileSync(file, blankProject("Smoke"));
+const start = blankProject("Smoke");
+// Synth 1 pattern 1, lane 1 (macro 1): a ramp over steps 1–4, so the editor has automation to show.
+for (let k = 0; k < 24; k++) start[notePatternOffset(0, 0) + LANE0 + k] = k * 5;
+writeFileSync(file, start);
 process.env["CIRCUIT_DESK_HOME"] = home;
 process.env["CIRCUIT_DESK_OPEN"] = file;
 const mainEntry: string = "../electron/main.ts";
@@ -75,10 +78,13 @@ async function run(): Promise<void> {
   const saved = readdirSync(copies).filter((f) => f.endsWith(".ncs"));
   const copy = saved[0] ? openProject(new Uint8Array(readFileSync(path.join(copies, saved[0])))) : null;
   check("Save a copy writes the edit to a new file", !!copy && readNotePattern(copy, 0, 0).steps[0]!.units[0]!.on && readNotePattern(copy, 0, 0).steps[0]!.units[0]!.note === 60, saved.join(", "));
-  check("the original is untouched", readFileSync(file).equals(Buffer.from(blankProject("Smoke"))));
+  check("the original is untouched", readFileSync(file).equals(Buffer.from(start)));
 
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Editor').click()`);
   check("Editor view shows the piano roll", await until(`!!document.querySelector('.roll')`));
+  check("automation lanes show under the piano roll", await until(`!!document.querySelector('.lane-points[aria-label^="Lane 1, Macro 1: 24 points, values 0–115, steps 1–4"]')`),
+    await js<string>(`document.querySelector('.lane-points')?.getAttribute('aria-label') ?? 'none'`));
+  check("the player can target a Circuit or the Live play-along set", (await js<string>(`[...document.getElementById('play-target').options].map(o => o.value).join()`)) === "circuit,live");
   const before = await js<number>(`document.querySelectorAll('.roll-note').length`);
   await js(`document.querySelector('.roll').focus()`);
   await key("Up"); await key("Up"); await key("Enter");

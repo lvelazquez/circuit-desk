@@ -54,8 +54,9 @@ export function writeSmf(a: Arrangement, opts: SmfOptions = {}): Uint8Array {
   ];
   const chunks = [track(conductor, a.length)];
   for (const t of a.tracks) {
-    if (skipEmpty && t.notes.length === 0) continue;
-    chunks.push(track([{ tick: 0, order: 0, bytes: nameMeta(t.name) }, ...noteEvents(t.notes, t.channel & 15)], a.length));
+    if (skipEmpty && t.notes.length === 0 && t.ccs.length === 0) continue;
+    const ccs = t.ccs.map((c) => ({ tick: c.tick, order: 1, bytes: [0xb0 | (t.channel & 15), c.cc, c.value] }));
+    chunks.push(track([{ tick: 0, order: 0, bytes: nameMeta(t.name) }, ...ccs, ...noteEvents(t.notes, t.channel & 15)], a.length));
   }
   return Uint8Array.from([...chunk("MThd", [...u16(1), ...u16(chunks.length), ...u16(a.ppq)]), ...chunks.flat()]);
 }

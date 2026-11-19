@@ -17,6 +17,14 @@ function project(): ReturnType<typeof arrange> {
 const msPerTick = 60_000 / 120 / 480;
 
 describe("schedule", () => {
+  it("plays MIDI-track automation as CC", () => {
+    const b = blankProject();
+    b[N.notePatternOffset(2, 0) + N.LANE0] = 40; // MIDI 1 knob 1, step 1
+    const s = new Schedule(arrange(N.openProject(b)), { lookahead: 5 });
+    s.play(0);
+    expect(s.pump(0)).toEqual([{ at: 0, bytes: [0xb2, 1, 40] }]);
+  });
+
   it("hands out messages ahead of time, with exact timestamps", () => {
     const s = new Schedule(project(), { lookahead: 50 });
     expect(s.play(1000)).toEqual([]);

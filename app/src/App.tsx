@@ -117,7 +117,9 @@ export function App() {
     if (!projectId) return;
     try {
       const r = kind === "midi" ? await call("exportMidi", projectId) : await call("exportAls", projectId);
-      setStatus({ text: `Exported ${r.path}${r.notes.length ? ` (${r.notes.join("; ")})` : ""}` });
+      const playAlong = (r as { playAlong?: string }).playAlong;
+      const along = playAlong ? ` and ${playAlong.split("/").pop()}` : "";
+      setStatus({ text: `Exported ${r.path}${along}${r.notes.length ? ` (${r.notes.join("; ")})` : ""}` });
       void bridge().reveal(r.path);
     } catch (e) { fail(e); }
   }, [projectId]);
@@ -172,6 +174,12 @@ export function App() {
             <option value="">{player.ports.length ? "MIDI output…" : "No MIDI outputs"}</option>
             {player.ports.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
+          <label className="visually-hidden" htmlFor="play-target">Plays to (Circuit, or the Live play-along set)</label>
+          <select id="play-target" value={player.target} onChange={(e) => player.chooseTarget(e.target.value === "live" ? "live" : "circuit")}
+            title="Circuit: the device's channels and drum notes. Live: the play-along set's (drums on channels 10–13, kit keys).">
+            <option value="circuit">→ Circuit</option>
+            <option value="live">→ Live set</option>
+          </select>
           <label><input type="checkbox" checked={player.clock} disabled={player.playing} onChange={(e) => player.setClock(e.target.checked)} /> Clock</label>
         </div>
         <button type="button" className="btn" onClick={() => void pick()}>Open…</button>
@@ -208,7 +216,7 @@ export function App() {
                     </select>
                   </label>
                 </div>
-                {data.kind === "notes" ? <PianoRoll playStep={playStep(track)} track={track} pattern={pattern} data={data} onNoteSteps={onNoteSteps} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} />
+                {data.kind === "notes" ? <PianoRoll projectId={projectId} version={version} playStep={playStep(track)} track={track} pattern={pattern} data={data} onNoteSteps={onNoteSteps} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} />
                   : <p className="hint">Choose a Synth or MIDI track for the piano roll.</p>}
                 <h2 className="visually-hidden">Drums</h2>
                 <div style={{ marginTop: "var(--space-xl)" }}>

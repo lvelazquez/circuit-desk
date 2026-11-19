@@ -1,9 +1,9 @@
 // DAW-style editing: a piano roll with a velocity lane for note tracks, a drum grid for all four
 // drums of a pattern. Every edit goes through the same service calls as the Circuit view, so the
 // device's limits (6 notes a step, 32 steps, sixth-of-a-step timing) always hold.
-import { useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import type { DrumStepIn, DrumTrackName, NoteStepIn, TrackName } from "@circuit-desk/core-service";
-import type { DrumPatternData, NotePatternData } from "./desk.ts";
+import { call, type Automation, type DrumPatternData, type NotePatternData } from "./desk.ts";
 import { clamp, isBlackKey, moveNote, noteName, noteSpoken, rollRange, STEPS, stepMap, toggleNote, updateNote } from "./model.ts";
 import { DRUM_NAMES, trackStyle } from "./tracks.ts";
 import { useRoving } from "./useRoving.ts";
@@ -19,8 +19,8 @@ interface Drag { mode: "move" | "resize"; step: number; pitch: number; x0: numbe
 /** Notes are drawn at least this opaque, reaching full at velocity 127, so soft notes stay visible. */
 const VELOCITY_ALPHA_FLOOR = 0.45;
 
-export function PianoRoll({ track, pattern, data, onNoteSteps, onSelectStep, playStep }: {
-  track: TrackName; playStep: number | null; pattern: number; data: NotePatternData;
+export function PianoRoll({ projectId, version, track, pattern, data, onNoteSteps, onSelectStep, playStep }: {
+  projectId: string | null; version: number; track: TrackName; playStep: number | null; pattern: number; data: NotePatternData;
   onNoteSteps: (steps: NoteStepIn[], label: string) => void; onSelectStep: (s: number) => void;
 }) {
   const notes = stepMap(data.steps);
@@ -146,6 +146,7 @@ export function PianoRoll({ track, pattern, data, onNoteSteps, onSelectStep, pla
         <div className="velocity-lane" aria-label="Velocity per step" role="img">
           {velocities.map((v, k) => <span key={k} title={v ? `Step ${k + 1}: ${v}` : undefined}><i style={vars({ level: v / 127 })} /></span>)}
         </div>
+        <AutomationLanes projectId={projectId} version={version} track={track} pattern={pattern} />
       </div>
       <p className="visually-hidden" aria-live="polite">Step {cursor.step}, {noteSpoken(cursor.pitch)}: {described}</p>
       <p id="roll-help" className="hint">
@@ -194,5 +195,35 @@ export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps, play
       </div>
       <p id="drumgrid-help" className="hint">Arrow keys move between drums and steps; Enter, Space or a click adds or removes a hit. The number on a hit is how many micro-steps sound.</p>
     </section>
+  );
+}
+
+/** Read-only automation lanes, aligned with the piano roll: 6 points a step, 0–127, gaps where none. */
+function AutomationLanes({ projectId, version, track, pattern }: { projectId: string | null; version: number; track: TrackName; pattern: number }) {
+  const [auto, setAuto] = useState<Automation | null>(null);
+  useEffect(() => {
+    if (!projectId) return;
+    let live = true;
+    void call("getAutomation", projectId, track, pattern).then((a) => { if (live) setAuto(a); }, () => { if (live) setAuto(null); });
+    return () => { live = false; };
+  }, [projectId, version, track, pattern]);
+  if (!auto) return null;
+  if (!auto.lanes.length) return <p className="lane-note">No automation in this pattern.</p>;
+  return (
+    <div className="automation" aria-label={`Automation, ${auto.lanes.length} of ${auto.laneCount} lanes in use (read-only; ${auto.evidence})`} role="group">
+      {auto.lanes.map((l) => {
+        const vals = l.points.filter((v): v is number => v !== null);
+        const steps = l.points.flatMap((v, k) => (v === null ? [] : [Math.floor(k / 6) + 1]));
+        return (
+          <div key={l.lane} className="lane-row">
+            <div className="lane-points" role="img"
+              aria-label={`Lane ${l.lane}, ${l.name}: ${vals.length} points, values ${Math.min(...vals)}–${Math.max(...vals)}, steps ${steps[0]}–${steps.at(-1)}`}>
+              {l.points.map((v, k) => <i key={k} data-empty={v === null} style={vars({ level: (v ?? 0) / 127 })} />)}
+            </div>
+            <span className="lane-name" aria-hidden="true">{l.lane}. {l.name}</span>
+          </div>
+        );
+      })}
+    </div>
   );
 }

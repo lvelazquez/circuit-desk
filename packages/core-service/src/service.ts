@@ -294,13 +294,29 @@ export class ProjectService {
     return dir;
   }
 
-  private arrange(o: Open, opts: { source?: "scenes" | "current"; repeats?: number }): X.Arrangement {
+  private arrange(o: Open, opts: X.ArrangeOptions): X.Arrangement {
     try { return X.arrange(o.project, opts); } catch (e) { throw new ServiceError((e as Error).message); }
   }
 
-  /** The project laid out in time, for playback (same as the exports use). */
-  arrangement(id: string, opts: { source?: "scenes" | "current"; repeats?: number } = {}): X.Arrangement {
-    return this.arrange(this.get(id), opts);
+  /**
+   * The project laid out in time, for playback (same as the exports use). `target` "live" uses the
+   * play-along set's channels and kit keys instead of the Circuit's.
+   */
+  arrangement(id: string, opts: { source?: "scenes" | "current"; repeats?: number; target?: "circuit" | "live" } = {}): X.Arrangement {
+    const { target, ...rest } = opts;
+    return this.arrange(this.get(id), target === "live" ? { ...rest, channels: X.LIVE_PLAY_CHANNELS, drumNotes: X.LIVE_KIT_KEYS } : rest);
+  }
+
+  /** The automation lanes of one pattern that hold any value, with what each lane drives. */
+  getAutomation(id: string, track: TrackName, pattern: number) {
+    const p = this.get(id).project, t = trackIndex(track), i = one("pattern", pattern, 8);
+    const m = t < 4 ? N.readNotePattern(p, t, i) : N.readDrumPattern(p, t - 4, i);
+    const kind: N.LaneKind = t < 2 ? "synth" : t < 4 ? "midi" : "drum";
+    const lanes = m.lanes.flatMap((lane, k) => {
+      if (lane.every((v) => v === 0xff)) return [];
+      return [{ ...N.laneInfo(kind, k + 1), points: Array.from(lane, (v) => (v === 0xff ? null : v)) }];
+    });
+    return { track, pattern, settings: settingsOut(m.settings), lanes, laneCount: m.lanes.length, evidence: N.LANE_EVIDENCE, pointsPerStep: 6 };
   }
 
   exportMidi(id: string, opts: { source?: "scenes" | "current"; repeats?: number } = {}): { path: string; notes: string[] } {
@@ -310,14 +326,20 @@ export class ProjectService {
     return { path, notes: a.warnings };
   }
 
-  exportAls(id: string, opts: { source?: "scenes" | "current"; repeats?: number; arrangement?: boolean; instruments?: "live" | "none"; liveApp?: string } = {}): { path: string; notes: string[] } {
+  exportAls(id: string, opts: { source?: "scenes" | "current"; repeats?: number; arrangement?: boolean; instruments?: "live" | "none"; liveApp?: string } = {}): { path: string; notes: string[]; playAlong?: string } {
     const o = this.get(id), a = this.arrange(o, opts);
     this.live ??= X.loadLiveTemplates(opts.liveApp);
-    const path = join(this.exportDir(o), `${basename(o.path).replace(/\.ncs$/i, "")}.als`);
-    let bytes: Uint8Array;
-    try { bytes = X.writeAls(a, this.live, { arrangement: opts.arrangement ?? true, instruments: opts.instruments ?? "live" }); } catch (e) { throw new ServiceError((e as Error).message); }
-    writeFileSync(path, bytes);
-    return { path, notes: a.warnings };
+    const stem = join(this.exportDir(o), basename(o.path).replace(/\.ncs$/i, ""));
+    const path = `${stem}.als`, playAlong = `${stem} (play-along).als`;
+    const write = (file: string, listen: boolean): void => {
+      let bytes: Uint8Array;
+      try { bytes = X.writeAls(a, this.live!, { arrangement: opts.arrangement ?? true, instruments: opts.instruments ?? "live", listen }); } catch (e) { throw new ServiceError((e as Error).message); }
+      writeFileSync(file, bytes);
+    };
+    write(path, false);
+    // The play-along set is for the app's Live target, which only makes sense with Live's instruments.
+    if ((opts.instruments ?? "live") === "live") write(playAlong, true);
+    return (opts.instruments ?? "live") === "live" ? { path, notes: a.warnings, playAlong } : { path, notes: a.warnings };
   }
 
   fields(id: string, field?: string) {

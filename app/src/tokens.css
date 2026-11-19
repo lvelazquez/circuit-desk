@@ -59,6 +59,10 @@
   --size-drum-name: 80px;
   --size-roll-max-height: 560px;
   --size-velocity-lane: 64px;
+  --size-lane: 36px;
+  --size-toolbar-select: 180px;
+  /* Steps in a pattern: a fixed fact of the device, kept here so layout math names it. */
+  --count-steps: 32;
   --size-velocity-bar: 60%;
   --radius-pad: 6px;
   --radius-panel: 10px;

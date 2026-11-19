@@ -36,11 +36,20 @@ export interface PatternPlay {
   firstStep: number;
 }
 
+/** A controller change: lane automation sent as MIDI CC. */
+export interface MidiCc {
+  tick: number;
+  cc: number;
+  value: number;
+}
+
 export interface PatternClip {
   /** Length in ticks, from the pattern's first step to its last. */
   length: number;
   /** From tick 0 of the pattern. */
   notes: MidiNote[];
+  /** Automation sent as CC (MIDI tracks' knob lanes), from tick 0 of the pattern. */
+  ccs: MidiCc[];
 }
 
 export interface ArrangedTrack {
@@ -51,6 +60,7 @@ export interface ArrangedTrack {
   patterns: PatternClip[];
   plays: PatternPlay[];
   notes: MidiNote[];
+  ccs: MidiCc[];
 }
 
 export interface ArrangedScene {
@@ -79,6 +89,30 @@ export interface ArrangeOptions {
   repeats?: number;
   channels?: readonly number[];
   drumNotes?: readonly number[];
+  /**
+   * CC numbers for the 8 knob lanes of MIDI 1 and MIDI 2 (the MIDI template's knobs). Default: the
+   * device's default template. null: leave automation out.
+   */
+  templateCcs?: readonly number[] | null;
+}
+
+/** The knob lanes of a MIDI-track pattern as CC changes, from its first step; a value is sent only when it changes. */
+export function patternCcs(p: N.NotePattern, ccs: readonly number[]): MidiCc[] {
+  const step = stepTicks(p.settings), { first, last } = span(p.settings), out: MidiCc[] = [];
+  ccs.slice(0, 8).forEach((cc, lane) => {
+    const points = p.lanes[lane];
+    if (!points) return;
+    let prev = -1;
+    for (let s = first; s <= last; s++) {
+      for (let u = 0; u < 6; u++) {
+        const v = points[s * 6 + u];
+        if (v === undefined || v === 0xff || v > 127 || v === prev) continue;
+        out.push({ tick: (s - first) * step + Math.round((u * step) / 6), cc: cc & 127, value: v });
+        prev = v;
+      }
+    }
+  });
+  return out.sort((a, b) => a.tick - b.tick || a.cc - b.cc);
 }
 
 function stepTicks(s: N.PatternSettings): number {
@@ -184,13 +218,21 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
   }));
   if (outOfRange.length) warnings.push(`left out notes stored above 127: ${outOfRange.join(", ")}`);
 
+  const templateCcs = opts.templateCcs === undefined ? N.DEFAULT_TEMPLATE_CCS : opts.templateCcs;
+  const patternCc = patterns.map((list, t) => list.map((p) => (t === 2 || t === 3) && templateCcs ? patternCcs(p as N.NotePattern, templateCcs) : []));
+  if (templateCcs && patternCc.some((l) => l.some((c) => c.length))) warnings.push("MIDI 1/2 automation is sent as CC assuming the default MIDI template's knob CCs");
+  const lanesNotSent = patterns.slice(0, 2).some((list) => list.some((p) => p.lanes.some((l) => l.some((v) => v !== 0xff))))
+    || patterns.slice(4).some((list) => list.some((p) => p.lanes.some((l) => l.some((v) => v !== 0xff))));
+  if (lanesNotSent) warnings.push("Synth and drum automation is not exported (it drives the Circuit's own sound)");
+
   const directions = new Set<string>();
   const tracks: ArrangedTrack[] = TRACK_NAMES.map((name, t) => ({
     name,
     channel: channels[t] ?? 0,
-    patterns: patterns[t]!.map((p, i) => ({ length: patternLength(p.settings), notes: removeOverlaps(patternNotes[t]![i]!) })),
+    patterns: patterns[t]!.map((p, i) => ({ length: patternLength(p.settings), notes: removeOverlaps(patternNotes[t]![i]!), ccs: patternCc[t]![i]! })),
     plays: [],
     notes: [],
+    ccs: [],
   }));
   const arrangedScenes: ArrangedScene[] = [];
   let tick = 0;
@@ -214,6 +256,7 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
           const st = patterns[t]![i]!.settings;
           tracks[t]!.plays.push({ pattern: i, tick: tick + at, length: len, stepTicks: stepTicks(st), firstStep: span(st).first + 1 });
           for (const n of patternNotes[t]![i]!) if (n.tick < len) tracks[t]!.notes.push({ ...n, tick: tick + at + n.tick });
+          for (const c of patternCc[t]![i]!) if (c.tick < len) tracks[t]!.ccs.push({ ...c, tick: tick + at + c.tick });
           at += len; k++;
         }
       });

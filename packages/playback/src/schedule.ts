@@ -27,6 +27,7 @@ export function events(a: Arrangement, opts: ScheduleOptions = {}): Ev[] {
   const out: Ev[] = [];
   a.tracks.forEach((t, i) => {
     if (opts.muted?.has(i)) return;
+    for (const c of t.ccs) out.push({ tick: c.tick, order: 1, bytes: [0xb0 | (t.channel & 15), c.cc, c.value] });
     for (const n of t.notes) {
       out.push({ tick: n.tick, order: 2, bytes: [0x90 | (t.channel & 15), n.pitch, n.velocity] });
       out.push({ tick: n.tick + n.dur, order: 1, bytes: [0x80 | (t.channel & 15), n.pitch, 0] });

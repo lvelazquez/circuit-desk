@@ -33,6 +33,11 @@ export const TRACK_ROLES: readonly InstrumentRole[] = ["keys", "bass", "lead", "
  * the Circuit's default kit). Live stores a pad's note as 128 − key: kick "92" = 36.
  */
 export const LIVE_KIT_KEYS = [36, 38, 42, 47] as const;
+/**
+ * Channels (0-based) for playing into a play-along set: the Circuit's for Synth and MIDI tracks,
+ * but one channel per drum (10–13) so each drum track hears only its own hits.
+ */
+export const LIVE_PLAY_CHANNELS = [0, 1, 2, 3, 9, 10, 11, 12] as const;
 
 /** The children of the track's own <Devices> element (after the freeze sequencer), with nesting. */
 export function trackDevices(track: string): string | null {
@@ -75,6 +80,11 @@ export interface AlsOptions {
    * to the Circuit. Default "live" when the templates have the instruments.
    */
   instruments?: "live" | "none";
+  /**
+   * A play-along set: each track takes MIDI from all inputs on its LIVE_PLAY_CHANNELS channel with
+   * monitoring In, so the app (through the IAC bus) plays Live's instruments. Default false.
+   */
+  listen?: boolean;
   /** Leave out tracks with no notes. Default true. */
   skipEmpty?: boolean;
 }
@@ -171,6 +181,12 @@ export function buildAlsXml(a: Arrangement, tpl: LiveTemplates, opts: AlsOptions
     x = x.replace(/<ClipSlotList>[\s\S]*?<\/ClipSlotList>/g, () => `<ClipSlotList>${list++ === 0 ? slots : freeze}</ClipSlotList>`);
     if (list !== 2) throw new Error(`Live template: expected 2 clip slot lists in a MIDI track, found ${list}`);
     x = must(x, /(<ClipTimeable>\s*<ArrangerAutomation>\s*)<Events \/>/, `$1<Events>${arranged}</Events>`, "the arrangement lane");
+    if (opts.listen) {
+      const ch = LIVE_PLAY_CHANNELS[i] ?? 0;
+      x = must(x, /(<MidiInputRouting>\s*<Target Value=")[^"]*(" \/>\s*<UpperDisplayString Value=")[^"]*(" \/>\s*<LowerDisplayString Value=")[^"]*(")/,
+        `$1MidiIn/External.All/${ch}$2Ext: All Ins$3Ch. ${ch + 1}$4`, "the track's MIDI input");
+      x = must(x, /<MonitoringEnum Value="\d" \/>/, `<MonitoringEnum Value="0" />`, "the track's monitoring");
+    }
     if (useLive) x = must(x, /<Devices \/>/, `<Devices>${tpl.instruments[TRACK_ROLES[i]!]}</Devices>`, "the track's device chain");
     return ids.fresh(x);
   });

@@ -78,6 +78,20 @@ describe.skipIf(!existsSync(LIVE))("Live set", () => {
     expect(r.tracks[0]!.session.filter(Boolean)).toHaveLength(2);
   });
 
+  it("writes a play-along set: each track hears its own channel, monitoring In", () => {
+    const b = blankProject();
+    putNote(b, 0, 0, 0, 60, 6, 100);
+    b[N.drumPatternOffset(2, 0)] = 100;
+    const x = buildAlsXml(arrange(N.openProject(b)), tpl, { listen: true });
+    // Each track's own routing is its first; Live's instrument racks carry more inside.
+    const first = (xml: string, re: RegExp): (string | undefined)[] => [...xml.matchAll(/<MidiTrack [\s\S]*?<\/MidiTrack>/g)].map((t) => re.exec(t[0])?.[1]);
+    const routes = first(x, /<MidiInputRouting>\s*<Target Value="([^"]*)"/);
+    expect(routes).toEqual(["MidiIn/External.All/0", "MidiIn/External.All/11"]); // Synth 1 ch 1, Drum 3 ch 12
+    expect(first(x, /<MonitoringEnum Value="(\d)"/)).toEqual(["0", "0"]);
+    const normal = buildAlsXml(arrange(N.openProject(b)), tpl);
+    expect(first(normal, /<MidiInputRouting>\s*<Target Value="([^"]*)"/)).toEqual(["MidiIn/External.All/-1", "MidiIn/External.All/-1"]);
+  });
+
   it("refuses a project with no notes", () => {
     expect(() => buildAlsXml(arrange(N.openProject(blankProject())), tpl)).toThrow(/no notes/);
   });

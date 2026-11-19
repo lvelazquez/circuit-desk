@@ -12,7 +12,7 @@ import { UnsafeWriteError } from "./paths.ts";
 export const SERVICE_METHODS = [
   "listProjects", "openProject", "closeProject", "openProjects", "summary", "getPattern",
   "setSteps", "setDrumSteps", "setPatternSettings", "getScenes", "setChain", "setScene",
-  "undo", "redo", "diffVsOriginal", "validate", "saveCopy", "exportMidi", "exportAls", "arrangement", "fields",
+  "undo", "redo", "diffVsOriginal", "validate", "saveCopy", "exportMidi", "exportAls", "arrangement", "fields", "getAutomation",
 ] as const;
 export type ServiceMethod = (typeof SERVICE_METHODS)[number];
 
