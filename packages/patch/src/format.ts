@@ -97,6 +97,21 @@ export const MACRO_DESTINATIONS: readonly string[] = [
   "Distortion level", "Chorus level", "Chorus rate", "Chorus feedback", "Chorus mod depth", "Chorus delay",
   ...Array.from({ length: 20 }, (_, k) => `Mod matrix ${k + 1} depth`),
 ];
+/** The patch parameter each macro destination moves, in the same order as MACRO_DESTINATIONS. */
+export const MACRO_DESTINATION_IDS: readonly string[] = [
+  "voice.portamento", "mixer.postFx",
+  ...["waveInterpolate", "pulseWidth", "virtualSync", "density", "densityDetune", "semitones", "cents"].map((n) => `osc1.${n}`),
+  ...["waveInterpolate", "pulseWidth", "virtualSync", "density", "densityDetune", "semitones", "cents"].map((n) => `osc2.${n}`),
+  "mixer.osc1", "mixer.osc2", "mixer.ringMod", "mixer.noise",
+  "filter.frequency", "filter.resonance", "filter.drive", "filter.tracking", "filter.env2ToFrequency",
+  ...["attack", "decay", "sustain", "release"].map((n) => `env1.${n}`),
+  ...["attack", "decay", "sustain", "release"].map((n) => `env2.${n}`),
+  ...["delay", "attack", "decay", "sustain", "release"].map((n) => `env3.${n}`),
+  "lfo1.rate", "lfo1.rateSync", "lfo1.slew", "lfo2.rate", "lfo2.rateSync", "lfo2.slew",
+  "fx.distortionLevel", "fx.chorusLevel", "fx.chorusRate", "fx.chorusFeedback", "fx.chorusModDepth", "fx.chorusDelay",
+  ...Array.from({ length: 20 }, (_, k) => `mod${k + 1}.depth`),
+];
+
 /** Destinations inferred by symmetry in the firmware study, not yet checked (NOTAS:2224). */
 export const MACRO_DESTINATIONS_UNCHECKED: readonly number[] = [41, 42, 43, 44, 45];
 

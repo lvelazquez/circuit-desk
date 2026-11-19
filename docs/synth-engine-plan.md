@@ -2,6 +2,37 @@
 
 **Status (2026-11-19, revision 2):** draft for the owner's review. It follows [`synth-engine-brief.md`](synth-engine-brief.md).
 **Revision 2** folds in what the CIRCUIT-HACKS repo (`circuit-hacks-rc`) already knows about the stock firmware. That changes the macro work, the curve work, the drum and FX work and the role of the emulator. In this document NOTAS means `circuit-hacks-rc/docs/NOTAS.md`.
+## Progress
+
+**2026-11-19:** E0.1–E0.3 and the E-slice are built. Decisions were taken on the recommended defaults.
+
+- **`packages/patch`:**
+  - format table: 324 parameters plus the name, CC/NRPN, display units, 70 macro destinations mapped to parameter ids;
+  - `parsePatch` and `buildPatch` (only changed bytes);
+  - `.cpb` banks (padding classified and kept);
+  - SysEx `.syx` files;
+  - `applyMacros` (guessed formula).
+  - On the card copy, every project and bank patch is in range and rebuilds byte for byte.
+  - The `ncs` registry marks the two project patches `partial`.
+- **`packages/engine/src/nova`:**
+  - A pure-DSP voice: waves 0–13 (3–12 as two-saw pulses), placeholder wavetables, mixer, ring and noise, 6 filter types with drive, routing and Q normalise, 3 envelopes, Poly, Mono and Mono AG, portamento.
+  - The mod matrix for direct, velocity, keyboard and envelope sources.
+  - An AudioWorklet and `NovaInstrument`. Synth 1/2 play the project's own patches in the app and in Export Preview Audio (new read-only service method `synthPatches`).
+- **Checks:**
+  - `npm test`: 115 tests.
+  - `app:smoke`: 33 checks. The piano-roll mouse step failed twice in a row, then passed 4 runs in a row; it looks like a timing race in the smoke script.
+  - Hello Tracks renders.
+- **Learned while building:**
+  - **Factory patches lean on macros and the matrix.** Many leave oscillator levels at 0 and get them from a macro at its stored position (Juno Strings), a Direct matrix source, or an LFO (Bendy Piano, through the one-shot "Piano envelope").
+  - So **E0.4 (the macro formula from the firmware) and LFOs move ahead of the rest of E2.**
+  - The guessed macro formula made the corpus worse (120 silent, peak 4.6, against 55 and 1.6 without it), so the voice has it off (`APPLY_MACROS`).
+  - Measure it again with `tools/nova-levels.ts` (add `--no-macros` to compare).
+- **Tools:**
+  - `tools/patch-show.ts`: a patch's non-default values.
+  - `tools/nova-levels.ts`: peak distribution over the card.
+
+**Next:** E0.4 (macro formula from the ARM routine), then LFOs 1–2, then E0.6 curves.
+
 **Rule for this plan:** no device or card writes. Device reads (SysEx dump requests, the `fwid` query) need approval at the time. Firmware-derived data stays local and is never committed (§5).
 
 ## 1. What we know

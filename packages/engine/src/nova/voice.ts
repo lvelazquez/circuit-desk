@@ -1,7 +1,7 @@
 // The Nova voice, first slice (plan "E-slice"): oscillators, mixer, filter, three envelopes, the
 // polyphony modes and portamento. LFOs, the mod matrix, macros and the per-patch FX come in E2.
 // Pure DSP: it renders into Float32Arrays and keeps time in frames.
-import { FIRST_WAVETABLE, PATCH_PARAMS } from "@circuit-desk/patch";
+import { FIRST_WAVETABLE, PATCH_PARAMS, applyMacros } from "@circuit-desk/patch";
 import * as C from "./curves.ts";
 import { Envelope, Noise, Svf, type SvfMode, saw, sawPulse, sine, triangle } from "./dsp.ts";
 
@@ -11,6 +11,14 @@ export const BLOCK = 32;
 export const VOICES = 6;
 /** Headroom so a 6-voice chord through the mixer rarely clips. */
 const VOICE_GAIN = 0.2;
+/**
+ * Macros are off until plan step E0.4 reads the offset formula from the firmware. The guessed
+ * formula in packages/patch/macros.ts made the card's 1 050 patches worse overall (tools/nova-levels.ts,
+ * 2026-11-19: 120 silent and a peak of 4.6 with it, 55 silent and 1.6 without), though it fixes
+ * patches such as "Juno Strings" that take their oscillator levels from a macro.
+ */
+export const APPLY_MACROS = false;
+
 /** How far envelope 2 at full depth moves the cutoff, semitones (a guess, like the curves). */
 const ENV2_RANGE = 60;
 
@@ -31,12 +39,28 @@ export interface NovaParams {
   cutoff: number;
   tracking: number;
   q: number;
+  /** Q normalise 0–1: how much the filter's input is turned down as resonance rises (a guess). */
+  qNormalise: number;
   env2ToCutoff: number;
   env: { velocity: number; delay: number; attack: number; decay: number; sustain: number; release: number }[];
+  /** Active mod matrix slots (depth ≠ 0). */
+  matrix: { source1: number; source2: number; depth: number; destination: number }[];
+  /** Raw 0–127 values the matrix offsets, so modulated parameters go through the same curves. */
+  raw: { cutoff: number; resonance: number; drive: number };
 }
 
-/** Turns a patch's raw values (by parameter id, as packages/patch parses them) into voice settings. */
-export function novaParams(v: Readonly<Record<string, number>>): NovaParams {
+// Mod matrix sources (guide p. 9): 0 direct, 4 velocity, 5 keyboard, 6–9 LFOs, 10–12 envelopes.
+// Scales for destinations are guesses until E0.6 measures them.
+/** Pitch destinations at full depth, semitones. */
+const MOD_PITCH_RANGE = 12;
+
+/**
+ * Turns a patch's raw values (by parameter id, as packages/patch parses them) into voice settings.
+ * Macros are applied first, in the 0–127 domain, as the firmware does; `macroPositions` overrides
+ * the stored knob positions (automation lanes 1–8).
+ */
+export function novaParams(raw: Readonly<Record<string, number>>, macroPositions?: readonly (number | undefined)[]): NovaParams {
+  const v = APPLY_MACROS ? applyMacros(raw, macroPositions) : raw;
   const g = (id: string): number => {
     const x = v[id];
     if (x === undefined) throw new Error(`patch value ${id} missing`);
@@ -73,9 +97,38 @@ export function novaParams(v: Readonly<Record<string, number>>): NovaParams {
     cutoff: g("filter.frequency"),
     tracking: g("filter.tracking") / 127,
     q: C.resonanceQ(g("filter.resonance")),
+    qNormalise: g("filter.qNormalise") / 127,
     env2ToCutoff: C.bipolar(g("filter.env2ToFrequency")),
     env: [env(1), env(2), env(3)],
+    matrix: Array.from({ length: 20 }, (_, k) => ({
+      source1: g(`mod${k + 1}.source1`), source2: g(`mod${k + 1}.source2`),
+      depth: C.bipolar(g(`mod${k + 1}.depth`)), destination: g(`mod${k + 1}.destination`),
+    })).filter((m) => m.depth !== 0),
+    raw: { cutoff: g("filter.frequency"), resonance: g("filter.resonance"), drive: g("filter.drive") },
   };
+}
+
+/** Per-block modulation from the mod matrix, by destination (guide p. 9 table, 0–17). */
+export interface ModState { values: Float64Array }
+
+/**
+ * Mod matrix sums for one voice at block rate. Sources the slice has: direct, velocity, keyboard,
+ * the three envelopes. LFOs (6–9) read 0 until E2. Two sources multiply; source 2 = direct is 1.
+ */
+export function modSums(p: NovaParams, velocity: number, note: number, env: readonly number[], out: Float64Array): void {
+  out.fill(0);
+  const src = (s: number): number => {
+    switch (s) {
+      case 0: return 1;
+      case 4: return velocity / 127;
+      case 5: return (note - 60) / 64;
+      case 10: return env[0] ?? 0;
+      case 11: return env[1] ?? 0;
+      case 12: return env[2] ?? 0;
+      default: return 0;
+    }
+  };
+  for (const m of p.matrix) out[m.destination] = (out[m.destination] ?? 0) + m.depth * src(m.source1) * src(m.source2);
 }
 
 /** The guide's default values, by id: a patch for tests and the fallback when none is loaded. */
@@ -117,6 +170,7 @@ export class Voice {
   private readonly env = [new Envelope(), new Envelope(), new Envelope()];
   private readonly svf = [new Svf(), new Svf()];
   private readonly noise = new Noise();
+  private readonly mod = new Float64Array(18);
 
   private readonly sampleRate: number;
 
@@ -172,13 +226,28 @@ export class Voice {
     const env2 = this.env[1]!.value;
     const vel = this.velocity / 127;
     const velScale = (amount: number): number => (amount >= 0 ? 1 - amount * (1 - vel) : 1 + amount * vel);
-    const cutoffNote = 12 * Math.log2(C.filterHz(p.cutoff) / midiHz(60)) + 60
+    // Mod matrix (block rate). Parameter-domain destinations add depth × 127 to the raw value.
+    const mod = this.mod;
+    modSums(p, this.velocity, this.note, [this.env[0]!.value, env2, this.env[2]!.value], mod);
+    const raw = (base: number, d: number): number => Math.min(127, Math.max(0, base + (mod[d] ?? 0) * 127));
+    const unit = (base: number, d: number): number => Math.min(1, Math.max(0, base + (mod[d] ?? 0)));
+    const q = C.resonanceQ(raw(p.raw.resonance, 13));
+    const drive = raw(p.raw.drive, 11) / 127;
+    const cutoffNote = 12 * Math.log2(C.filterHz(raw(p.raw.cutoff, 12)) / midiHz(60)) + 60
       + (pitch - 60) * p.tracking + env2 * p.env2ToCutoff * ENV2_RANGE * velScale(p.env[1]!.velocity);
     const fs = FILTER_STAGES[p.filterType] ?? FILTER_STAGES[1]!;
-    for (const f of this.svf) f.set(midiHz(cutoffNote), fs.stages === 2 ? Math.sqrt(p.q) : p.q, sr);
-    const dt = [midiHz(pitch + p.osc[0].transpose) / sr, midiHz(pitch + p.osc[1].transpose) / sr];
+    for (const f of this.svf) f.set(midiHz(cutoffNote), fs.stages === 2 ? Math.sqrt(q) : q, sr);
+    const both = (mod[0] ?? 0) * MOD_PITCH_RANGE;
+    const dt = [
+      midiHz(pitch + p.osc[0].transpose + both + (mod[1] ?? 0) * MOD_PITCH_RANGE) / sr,
+      midiHz(pitch + p.osc[1].transpose + both + (mod[2] ?? 0) * MOD_PITCH_RANGE) / sr,
+    ];
+    const lv1 = unit(p.osc[0].level, 7), lv2 = unit(p.osc[1].level, 8);
+    const noiseLv = unit(p.noise, 9), ringLv = unit(p.ring, 10);
     const amp = VOICE_GAIN * velScale(p.env[0]!.velocity) * p.postFx;
-    const driveGain = 1 + p.drive * 7;
+    const driveGain = 1 + drive * 7;
+    // Q normalise: turn the filter input down as resonance rises (a guess at what the parameter does).
+    const qComp = q > 1 ? q ** -(p.qNormalise) : 1;
 
     for (let i = 0; i < n; i++) {
       const e1 = this.env[0]!.next();
@@ -191,13 +260,13 @@ export class Voice {
         if (ph >= 1) ph -= 1;
         this.phase[k] = ph;
       }
-      const a = s1 * p.osc[0].level, b = s2 * p.osc[1].level;
-      const extra = s1 * s2 * p.ring + this.noise.next() * p.noise;
+      const a = s1 * lv1, b = s2 * lv2;
+      const extra = s1 * s2 * ringLv + this.noise.next() * noiseLv;
       // Routing (guide): 0 everything through the filter; 1 osc 1 bypasses; 2 osc 1 + 2 bypass.
       const filtered = p.routing === 0 ? a + b + extra : p.routing === 1 ? b + extra : extra;
       const bypass = p.routing === 0 ? 0 : p.routing === 1 ? a : a + b;
-      let x = filtered * p.preFx;
-      if (p.drive > 0) x = Math.tanh(x * driveGain) / Math.sqrt(driveGain);
+      let x = filtered * p.preFx * qComp;
+      if (drive > 0) x = Math.tanh(x * driveGain) / Math.sqrt(driveGain);
       let y = this.svf[0]!.process(x, fs.mode);
       if (fs.stages === 2) y = this.svf[1]!.process(y, fs.mode);
       out[offset + i]! += (y + bypass * p.preFx) * e1 * amp;

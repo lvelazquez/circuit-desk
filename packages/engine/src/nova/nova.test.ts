@@ -91,6 +91,21 @@ describe("Nova voice (slice)", () => {
     expect(frequency(x, 2.2, 3)).toBeCloseTo(220, -1);
   });
 
+  it("a Direct mod matrix source supplies an oscillator level the mixer leaves at 0", () => {
+    const on = (s: NovaSynth): void => s.schedule({ frame: 0, type: "on", note: 60, velocity: 100 });
+    const silent = values({ "mixer.osc1": 0 });
+    expect(rms(render(silent, on, 0.3))).toBe(0);
+    const direct = values({ "mixer.osc1": 0, "mod1.source1": 0, "mod1.depth": 127, "mod1.destination": 7 });
+    expect(rms(render(direct, on, 0.3))).toBeGreaterThan(0.01);
+  });
+
+  it("Q normalise keeps a resonant patch's level in check", () => {
+    const on = (s: NovaSynth): void => s.schedule({ frame: 0, type: "on", note: 48, velocity: 100 });
+    const loud = rms(render(values({ "filter.frequency": 60, "filter.resonance": 127, "filter.qNormalise": 0 }), on, 0.5));
+    const norm = rms(render(values({ "filter.frequency": 60, "filter.resonance": 127, "filter.qNormalise": 127 }), on, 0.5));
+    expect(norm).toBeLessThan(loud / 4);
+  });
+
   it("renders the same bytes every time (golden hash input)", () => {
     const go = (): string => {
       const x = render(values({ "mixer.noise": 40, "osc2.wave": 13, "mixer.osc2": 90, "filter.resonance": 70 }), (s) => {
