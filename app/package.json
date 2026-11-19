@@ -1,6 +1,7 @@
 {
   "name": "@circuit-desk/app",
   "private": true,
+  "version": "0.1.0",
   "type": "module",
   "main": "electron/main.ts",
   "dependencies": {

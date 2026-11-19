@@ -8,3 +8,8 @@ out
 fixtures/card
 *.ncs
 app/dist
+app/dist-electron
+app/release-stage
+release
+# Claude Code's local worktrees and settings.
+.claude/

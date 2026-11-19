@@ -18,10 +18,13 @@
     "app": "npm run app:build && electron app/electron/main.ts",
     "app:smoke": "npm run app:build && electron app/scripts/smoke.ts",
     "app:midi-probe": "npm run app:build && electron app/scripts/midi-probe.ts",
-    "app:render": "npm run app:build && electron app/scripts/render-preview.ts"
+    "app:render": "npm run app:build && electron app/scripts/render-preview.ts",
+    "app:bundle": "vite build --config app/vite.electron.config.ts",
+    "app:dist": "node tools/package-app.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
+    "electron-builder": "26.18.0",
     "typescript": "7.0.2",
     "vite": "8.3.5",
     "vitest": "5.0.5"
