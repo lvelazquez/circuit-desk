@@ -199,6 +199,15 @@ Illegal input is flagged in the GUI and returned as MCP validation errors.
 - **Already mapped (found in revision):** the 8 drum lanes. Lanes 0–3 are the four stock drum knobs, 4 is level, 5 and 6 are the two FX sends, 7 is pan (`docs/NOTAS.md:1178`). They still need one device check before they count as `verified`.
 - **Blocker:** the 12 synth lanes aren't documented yet. One pointer: table `0x08059080` gives ids 20–27 = MIDI 1 lanes 0–7 and 30–37 = MIDI 2. It is resolved in the decode track by controlled diffs: record one knob's automation on the device, save, and diff the files.
 
+## Preview engine (built 2026-11-19): the groundwork for S1/S2
+- **`packages/engine`** (Web Audio, runs in the window): `PreviewEngine` = 8 channel strips (instrument → gain) → master gain → limiter. It takes the scheduler's timed messages (the same ones a MIDI port gets, plus `track` and drum `sample`), so playback, the playhead and live edits are shared with MIDI output.
+- **`Instrument` interface** (`types.ts`): `noteOn / noteOff / control / silence / dispose`. Every future sound source plugs in here without touching the scheduler or UI.
+  - `Sampler` (drums): the pack's own WAVs (`PCM/NN_Name.wav`, 48 kHz mono), the track's sample from byte 0 of its drum record (checked against sample names on 8 factory projects), per-step sample flips, one sound per track (a new hit cuts the last). Synthetic fallback hits if a sample is missing.
+  - `Synth` (Synth 1/2, MIDI 1/2): a 6-voice subtractive stand-in driven by a plain-data `SynthPatch` (named stand-ins in `STAND_IN_PATCHES`). **Next step for S1:** decode the Nova patch (340 B in the project at 0x26D14, banks in `Patches/NN_PATCHBANK.cpb`) into a richer patch model, then either map it onto this synth or replace it with a Nova-like voice behind the same interface.
+- **Offline render** (`render.ts`): the arrangement through the engine on an `OfflineAudioContext` → 16-bit WAV. Used by File › Export Preview Audio (⌘⌥E, writes `<name> (preview).wav` in Exports) and by `npm run app:render -- <ncs>`. **Use for S1/S2:** golden renders — once a device recording exists, compare the engine's render to it per track.
+- **Pack view**: the 64 samples, click to audition, which drums use which; the place for patch auditioning and editing once patches decode.
+- **Not modelled yet:** drum knobs (pitch/decay etc.), mixer levels, pan, FX (reverb/delay/sidechain), swing, probability, synth macros. Each is a decode-track item first.
+
 ## Sound engine options and the Ableton link (effort estimates)
 | Tier | What | Fidelity | Effort [estimate] | Risk |
 |---|---|---|---|---|

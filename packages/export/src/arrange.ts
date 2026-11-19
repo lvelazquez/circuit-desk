@@ -23,6 +23,8 @@ export interface MidiNote {
   dur: number;
   pitch: number;
   velocity: number;
+  /** Drums: the pack sample (0–63) this hit flips to, when the step has a sample flip. */
+  sample?: number;
 }
 
 /** One pattern as it is played once: its position, its length, and its notes from tick 0. */
@@ -151,7 +153,12 @@ export function drumPatternNotes(p: N.DrumPattern, pitch: number): MidiNote[] {
     if (!st || st.velocity === 0) continue;
     const mask = st.microSteps & 63 || 1;
     for (let k = 0; k < 6; k++) {
-      if ((mask >> k) & 1) out.push({ tick: (s - first) * step + Math.round((k * step) / 6), dur: Math.max(1, step >> 2), pitch, velocity: Math.max(1, st.velocity & 127) });
+      if ((mask >> k) & 1) {
+        out.push({
+          tick: (s - first) * step + Math.round((k * step) / 6), dur: Math.max(1, step >> 2), pitch, velocity: Math.max(1, st.velocity & 127),
+          ...(st.sampleFlip < 64 ? { sample: st.sampleFlip } : {}),
+        });
+      }
     }
   }
   return out;

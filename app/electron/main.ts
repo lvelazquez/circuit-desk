@@ -75,11 +75,11 @@ function menu(): void {
   const item = (label: string, accelerator: string, command: MenuCommand): MenuItemConstructorOptions => ({ label, accelerator, click: () => send(command) });
   const template: MenuItemConstructorOptions[] = [
     { role: "appMenu" },
-    { label: "File", submenu: [item("Open Project…", "CmdOrCtrl+O", "open"), item("Save a Copy", "CmdOrCtrl+S", "save-copy"), { type: "separator" }, item("Export MIDI", "CmdOrCtrl+E", "export-midi"), item("Export Live Set", "CmdOrCtrl+Shift+E", "export-als"), { type: "separator" }, { role: "close" }] },
+    { label: "File", submenu: [item("Open Project…", "CmdOrCtrl+O", "open"), item("Save a Copy", "CmdOrCtrl+S", "save-copy"), { type: "separator" }, item("Export MIDI", "CmdOrCtrl+E", "export-midi"), item("Export Live Set", "CmdOrCtrl+Shift+E", "export-als"), item("Export Preview Audio", "CmdOrCtrl+Alt+E", "export-audio"), { type: "separator" }, { role: "close" }] },
     // Undo and redo go to the window, which undoes text in a focused field or the project's last edit.
     { label: "Edit", submenu: [item("Undo", "CmdOrCtrl+Z", "undo"), item("Redo", "Shift+CmdOrCtrl+Z", "redo"), { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
     { label: "Transport", submenu: [item("Play / Stop", "CmdOrCtrl+Return", "play")] },
-    { label: "View", submenu: [item("Next View (Circuit, Editor, Scenes)", "CmdOrCtrl+1", "toggle-view"), { type: "separator" }, { role: "reload" }, { role: "toggleDevTools" }, { role: "togglefullscreen" }] },
+    { label: "View", submenu: [item("Next View (Circuit, Editor, Scenes, Pack)", "CmdOrCtrl+1", "toggle-view"), { type: "separator" }, { role: "reload" }, { role: "toggleDevTools" }, { role: "togglefullscreen" }] },
     { role: "windowMenu" },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

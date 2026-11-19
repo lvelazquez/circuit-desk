@@ -287,6 +287,15 @@ export class ProjectService {
     return out;
   }
 
+  /** Writes the preview engine's render of the project as `<name> (preview).wav` in its exports folder. */
+  saveAudio(id: string, wav: Uint8Array): { path: string } {
+    const o = this.get(id);
+    if (!(wav instanceof Uint8Array) || wav.length < 44 || String.fromCharCode(...wav.slice(0, 4)) !== "RIFF") throw new ServiceError("not a WAV file");
+    const path = join(this.exportDir(o), `${basename(o.path).replace(/\.ncs$/i, "")} (preview).wav`);
+    writeFileSync(path, wav);
+    return { path };
+  }
+
   private exportDir(o: Open): string {
     const dir = join(this.paths.exports, basename(o.path).replace(/\.ncs$/i, ""));
     checkWritable(join(dir, "x"), [this.paths.exports]);
@@ -305,6 +314,40 @@ export class ProjectService {
   arrangement(id: string, opts: { source?: "scenes" | "current"; repeats?: number; target?: "circuit" | "live" } = {}): X.Arrangement {
     const { target, ...rest } = opts;
     return this.arrange(this.get(id), target === "live" ? { ...rest, channels: X.LIVE_PLAY_CHANNELS, drumNotes: X.LIVE_KIT_KEYS } : rest);
+  }
+
+  /**
+   * The project's pack (the folder above Sessions/): its 64 drum samples, and which sample each
+   * drum plays (byte 0 of its drum record; checked against sample names on the factory pack).
+   */
+  packSamples(id: string): { pack: string | null; samples: { index: number; name: string; size: number }[]; drums: number[] } {
+    const o = this.get(id);
+    const drums = [0, 1, 2, 3].map((d) => o.project.bytes[N.DRUM_BLOCK + d * N.DRUM_RECORD] ?? 0);
+    const pcm = this.pcmFolder(o);
+    if (!pcm) return { pack: null, samples: [], drums };
+    const samples = readdirSync(pcm).flatMap((f) => {
+      const m = /^(\d\d)_(.+)\.wav$/i.exec(f);
+      return m ? [{ index: Number(m[1]), name: m[2]!, size: statSync(join(pcm, f)).size }] : [];
+    }).filter((x) => x.index < 64).sort((a, b) => a.index - b.index);
+    return { pack: dirname(pcm), samples, drums };
+  }
+
+  /** The WAV file of sample `index` (0–63) of the project's pack. Read-only. */
+  sampleData(id: string, index: number): Uint8Array {
+    if (!Number.isInteger(index) || index < 0 || index > 63) throw new ServiceError(`sample must be 0–63, got ${index}`);
+    const pcm = this.pcmFolder(this.get(id));
+    if (!pcm) throw new ServiceError("this project is not inside a pack (Tracks/NN_Pack/Sessions/), so it has no samples");
+    const prefix = String(index).padStart(2, "0") + "_";
+    const f = readdirSync(pcm).find((x) => x.startsWith(prefix) && /\.wav$/i.test(x));
+    if (!f) throw new ServiceError(`the pack has no sample ${index}`);
+    return new Uint8Array(readFileSync(join(pcm, f)));
+  }
+
+  private pcmFolder(o: Open): string | null {
+    const sessions = dirname(o.path);
+    if (basename(sessions).toLowerCase() !== "sessions") return null;
+    const pcm = join(dirname(sessions), "PCM");
+    return existsSync(pcm) && statSync(pcm).isDirectory() ? pcm : null;
   }
 
   /** The automation lanes of one pattern that hold any value, with what each lane drives. */

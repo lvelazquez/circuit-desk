@@ -7,9 +7,13 @@ export interface TimedMessage {
   /** When to send, in the caller's clock (ms). */
   at: number;
   bytes: number[];
+  /** The Circuit track (0–7) the message belongs to, for the built-in preview engine. */
+  track?: number;
+  /** Drums: the pack sample a hit flips to. */
+  sample?: number;
 }
 
-interface Ev { tick: number; order: number; bytes: number[] }
+interface Ev { tick: number; order: number; bytes: number[]; track?: number; sample?: number }
 
 export interface ScheduleOptions {
   /** Send MIDI clock (24 a quarter note) with start and stop. Default false. */
@@ -27,10 +31,10 @@ export function events(a: Arrangement, opts: ScheduleOptions = {}): Ev[] {
   const out: Ev[] = [];
   a.tracks.forEach((t, i) => {
     if (opts.muted?.has(i)) return;
-    for (const c of t.ccs) out.push({ tick: c.tick, order: 1, bytes: [0xb0 | (t.channel & 15), c.cc, c.value] });
+    for (const c of t.ccs) out.push({ tick: c.tick, order: 1, bytes: [0xb0 | (t.channel & 15), c.cc, c.value], track: i });
     for (const n of t.notes) {
-      out.push({ tick: n.tick, order: 2, bytes: [0x90 | (t.channel & 15), n.pitch, n.velocity] });
-      out.push({ tick: n.tick + n.dur, order: 1, bytes: [0x80 | (t.channel & 15), n.pitch, 0] });
+      out.push({ tick: n.tick, order: 2, bytes: [0x90 | (t.channel & 15), n.pitch, n.velocity], track: i, ...(n.sample !== undefined ? { sample: n.sample } : {}) });
+      out.push({ tick: n.tick + n.dur, order: 1, bytes: [0x80 | (t.channel & 15), n.pitch, 0], track: i });
     }
   });
   if (opts.clock) for (let k = 0; k < a.length; k += a.ppq / 24) out.push({ tick: k, order: 0, bytes: [0xf8] });
@@ -91,7 +95,7 @@ export class Schedule {
       const at = this.start + (this.pass * this.a.length + e.tick) * this.msPerTick;
       if (at >= horizon) break;
       this.next++;
-      out.push({ at: Math.max(at, now), bytes: e.bytes });
+      out.push({ at: Math.max(at, now), bytes: e.bytes, ...(e.track !== undefined ? { track: e.track } : {}), ...(e.sample !== undefined ? { sample: e.sample } : {}) });
       this.track(e.bytes);
     }
     return out;

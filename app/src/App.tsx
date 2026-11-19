@@ -9,11 +9,13 @@ import { bridge, call, type DrumPatternData, type Listing, type PatternData, typ
 import { DrumGrid, PianoRoll } from "./EditorView.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { Library } from "./Library.tsx";
+import { PackView } from "./PackView.tsx";
 import { ScenesView } from "./ScenesView.tsx";
 import { DRUM_NAMES, isDrum, isNoteTrack, TRACK_NAMES } from "./tracks.ts";
+import { encodeWav, renderOffline } from "@circuit-desk/engine";
 import { usePlayer } from "./usePlayer.ts";
 
-type View = "circuit" | "editor" | "scenes";
+type View = "circuit" | "editor" | "scenes" | "pack";
 interface Status { text: string; error?: boolean }
 
 const isTextField = (el: Element | null): boolean => el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
@@ -124,6 +126,20 @@ export function App() {
     } catch (e) { fail(e); }
   }, [projectId]);
 
+  const exportAudio = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      setStatus({ text: "Rendering the preview…" });
+      const a = await call("arrangement", projectId, { source: "current" });
+      const pack = await call("packSamples", projectId);
+      const buf = await renderOffline(a, pack.drums, (i) => call("sampleData", projectId, i));
+      const wav = encodeWav(Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c)), buf.sampleRate);
+      const { path } = await call("saveAudio", projectId, wav);
+      setStatus({ text: `Exported ${path} (built-in preview: drums from the pack, synths are stand-ins)` });
+      void bridge().reveal(path);
+    } catch (e) { fail(e); }
+  }, [projectId]);
+
   const pick = useCallback(async () => {
     try { const p = await bridge().pickProject(); if (p) await open(p); } catch (e) { fail(e); }
   }, [open]);
@@ -138,7 +154,8 @@ export function App() {
         else if (command === "save-copy") void saveCopy();
         else if (command === "export-midi") void exportTo("midi");
         else if (command === "export-als") void exportTo("als");
-        else if (command === "toggle-view") setView((v) => (v === "circuit" ? "editor" : v === "editor" ? "scenes" : "circuit"));
+        else if (command === "export-audio") void exportAudio();
+        else if (command === "toggle-view") setView((v) => (v === "circuit" ? "editor" : v === "editor" ? "scenes" : v === "scenes" ? "pack" : "circuit"));
         else if (command === "changed") {
           // Claude edited or opened a project through the MCP link.
           setVersion((v) => v + 1);
@@ -147,7 +164,7 @@ export function App() {
         else if (command === "play") { if (player.playing) player.stop(); else void player.play(); }
       });
     } catch { return undefined; }
-  }, [undo, pick, saveCopy, exportTo, player]);
+  }, [undo, pick, saveCopy, exportTo, exportAudio, player]);
 
   const chooseTrack = (t: TrackName): void => { setTrack(t); setStep(null); };
   const choosePattern = (n: number): void => { setPattern(n); setStep(null); setDrumSel(null); };
@@ -165,6 +182,7 @@ export function App() {
           <button type="button" className="btn" aria-pressed={view === "circuit"} onClick={() => setView("circuit")}>Circuit</button>
           <button type="button" className="btn" aria-pressed={view === "editor"} onClick={() => setView("editor")}>Editor</button>
           <button type="button" className="btn" aria-pressed={view === "scenes"} onClick={() => setView("scenes")}>Scenes</button>
+          <button type="button" className="btn" aria-pressed={view === "pack"} onClick={() => setView("pack")}>Pack</button>
         </div>
         <div role="group" aria-label="Transport" className="row" style={{ margin: 0 }}>
           <button type="button" className="btn" aria-pressed={player.playing} disabled={!projectId}
@@ -191,8 +209,9 @@ export function App() {
       </header>
       <div className="main">
         <Library items={library} current={current} onOpen={(p) => void open(p)} />
-        <main className="workspace" aria-label={view === "circuit" ? "Circuit view" : view === "editor" ? "Editor view" : "Scenes view"}>
+        <main className="workspace" aria-label={`${view[0]!.toUpperCase()}${view.slice(1)} view`}>
           {!summary || !data ? <p className="empty">{projectId ? "Loading…" : "Choose a project in the library, or File › Open Project."}</p>
+            : view === "pack" && projectId ? <PackView projectId={projectId} version={version} />
             : view === "scenes" ? (scenes ? (
               <ScenesView scenes={scenes}
                 onSceneChain={(first, last) => { if (projectId) void edit(`scene chain ${first}–${last}`, () => call("setChain", projectId, "scenes", first, last)); }}
@@ -234,8 +253,8 @@ export function App() {
       <footer className="statusbar">
         <span role="status" aria-live="polite" className={status.error ? "error" : undefined}>{status.text}</span>
         {player.error && <span role="alert" className="error">{player.error}</span>}
-        {!player.error && player.ports.length === 0 && (
-          <span>No MIDI outputs: connect the Circuit, or turn on the IAC Driver in Audio MIDI Setup (Window › Show MIDI Studio).</span>
+        {!player.error && player.ports.length <= 1 && (
+          <span>No MIDI outputs: the built-in preview plays here; for the Circuit or Live, connect it or turn on the IAC Driver.</span>
         )}
         <span>{player.playing ? "Playing the current chains" : ""}</span>
       </footer>

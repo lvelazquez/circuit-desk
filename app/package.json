@@ -5,6 +5,7 @@
   "main": "electron/main.ts",
   "dependencies": {
     "@circuit-desk/core-service": "*",
+    "@circuit-desk/engine": "*",
     "@circuit-desk/ncs": "*",
     "@circuit-desk/playback": "*"
   },

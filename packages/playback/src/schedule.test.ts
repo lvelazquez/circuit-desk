@@ -22,18 +22,18 @@ describe("schedule", () => {
     b[N.notePatternOffset(2, 0) + N.LANE0] = 40; // MIDI 1 knob 1, step 1
     const s = new Schedule(arrange(N.openProject(b)), { lookahead: 5 });
     s.play(0);
-    expect(s.pump(0)).toEqual([{ at: 0, bytes: [0xb2, 1, 40] }]);
+    expect(s.pump(0)).toEqual([{ at: 0, bytes: [0xb2, 1, 40], track: 2 }]);
   });
 
   it("hands out messages ahead of time, with exact timestamps", () => {
     const s = new Schedule(project(), { lookahead: 50 });
     expect(s.play(1000)).toEqual([]);
-    expect(s.pump(1000)).toEqual([{ at: 1000, bytes: [0x90, 60, 100] }]);
+    expect(s.pump(1000)).toEqual([{ at: 1000, bytes: [0x90, 60, 100], track: 0 }]);
     expect(s.pump(1000)).toEqual([]);
     const later = s.pump(1000 + 120 * msPerTick);
-    expect(later).toEqual([{ at: 1000 + 120 * msPerTick, bytes: [0x80, 60, 0] }]);
+    expect(later).toEqual([{ at: 1000 + 120 * msPerTick, bytes: [0x80, 60, 0], track: 0 }]);
     const drum = s.pump(1000 + 480 * msPerTick);
-    expect(drum[0]).toEqual({ at: 1000 + 480 * msPerTick, bytes: [0x99, 60, 90] });
+    expect(drum[0]).toEqual({ at: 1000 + 480 * msPerTick, bytes: [0x99, 60, 90], track: 4 });
   });
 
   it("loops, and reports the position and each track's step", () => {
@@ -42,7 +42,7 @@ describe("schedule", () => {
     s.play(0);
     const loop = a.length * msPerTick;
     s.pump(loop - 20);
-    expect(s.pump(loop)).toContainEqual({ at: loop, bytes: [0x90, 60, 100] });
+    expect(s.pump(loop)).toContainEqual({ at: loop, bytes: [0x90, 60, 100], track: 0 });
     expect(s.position(loop + 480 * msPerTick)).toBeCloseTo(480, 6);
     expect(playheads(a, 480)[0]).toEqual({ pattern: 1, step: 5 });
     expect(playheads(a, 480)[4]).toEqual({ pattern: 1, step: 5 });
@@ -57,6 +57,15 @@ describe("schedule", () => {
       { at: 5, bytes: [0xb9, 123, 0] },
     ]);
     expect(s.pump(10_000)).toEqual([]);
+  });
+
+  it("carries a drum step's sample flip", () => {
+    const b = blankProject();
+    const d = N.drumPatternOffset(1, 0);
+    b[d] = 100; b[d + 64] = 12; // Drum 2 step 1 flips to sample 12
+    const s = new Schedule(arrange(N.openProject(b)), { lookahead: 5 });
+    s.play(0);
+    expect(s.pump(0)).toEqual([{ at: 0, bytes: [0x99, 62, 100], track: 5, sample: 12 }]);
   });
 
   it("sends clock, start and stop when asked, and skips muted tracks", () => {

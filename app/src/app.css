@@ -126,3 +126,10 @@ button, input, select { font: inherit; color: inherit; }
 .lane-points i[data-empty="true"] { background: none; }
 .lane-name { font-size: var(--font-size-xs); color: var(--color-text-secondary); white-space: nowrap; }
 .lane-note { font-size: var(--font-size-sm); color: var(--color-text-secondary); margin: var(--space-sm) 0 0; }
+
+/* Pack view */
+.section-title { font-size: var(--font-size-sm); font-weight: var(--font-weight-strong); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: var(--font-tracking-caps); margin: var(--space-md) 0 var(--space-sm); }
+.sample-grid { display: grid; grid-template-columns: repeat(8, var(--size-sample-pad)); gap: var(--space-xs); }
+.pad.sample { height: var(--size-pad); padding: var(--space-xs); text-align: center; overflow: hidden; }
+.pad.sample span:not(.pad-num) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.sample-users { font-size: var(--font-size-xs); font-weight: var(--font-weight-strong); }

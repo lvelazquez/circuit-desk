@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SocketClient } from "@circuit-desk/core-service";
+import { encodeWav } from "@circuit-desk/engine";
 import { LANE0, notePatternOffset, openProject, readNotePattern } from "@circuit-desk/ncs";
 import { blankProject } from "../../packages/ncs/src/testing.ts";
 
@@ -16,6 +17,10 @@ const start = blankProject("Smoke");
 // Synth 1 pattern 1, lane 1 (macro 1): a ramp over steps 1–4, so the editor has automation to show.
 for (let k = 0; k < 24; k++) start[notePatternOffset(0, 0) + LANE0 + k] = k * 5;
 writeFileSync(file, start);
+// The pack's sample 0: a 60 ms 200 Hz burst, so the rendered preview can be checked for it.
+mkdirSync(path.join(path.dirname(path.dirname(file)), "PCM"));
+const burst = new Float32Array(2880).map((_, i) => 0.8 * Math.sin((2 * Math.PI * 200 * i) / 48_000));
+writeFileSync(path.join(path.dirname(path.dirname(file)), "PCM", "00_Burst.wav"), encodeWav([burst], 48_000));
 process.env["CIRCUIT_DESK_HOME"] = home;
 process.env["CIRCUIT_DESK_USER_DATA"] = path.join(home, "app-data");
 process.env["CIRCUIT_DESK_OPEN"] = file;
@@ -143,7 +148,37 @@ async function run(): Promise<void> {
   check("an edit through the link shows in the window", await until(`document.querySelector('[aria-label^="Step 5:"]').getAttribute('aria-pressed') === 'true'`));
   link?.close();
 
+  // Built-in preview: the default output, playing through the engine.
+  check("the built-in preview is the default output", (await js<string>(`document.getElementById('midi-out').value`)) === "preview");
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Play')).click()`);
+  check("the built-in preview plays (playhead moves, no error)", await until(`!!document.querySelector('.pad[data-playing=true]') && !document.querySelector('[role=alert]')`),
+    await js<string>(`document.querySelector('[role=alert]')?.textContent ?? ''`));
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Stop')).click()`);
+  await until(`!document.querySelector('[data-playing=true]')`);
+
+  // The pack view lists the pack's samples and plays one.
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Pack').click()`);
+  check("the pack view lists the samples and marks the drums that use one", await until(`!!document.querySelector('[aria-label^="Play sample 1, Burst, used by Drum 1"]')`),
+    await js<string>(`document.querySelector('.pad.sample')?.getAttribute('aria-label') ?? 'none'`));
+  await js(`document.querySelector('[aria-label^="Play sample 1"]').click()`);
+  await wait(300);
+  check("auditioning a sample plays without an error", !(await js<boolean>(`!!document.querySelector('[role=alert]') || /could not/.test(document.querySelector('.empty')?.textContent ?? '')`)));
+
+  // Export Preview Audio: the rendered WAV has the burst at step 1 and silence between hits.
+  menuClick("Export Preview Audio");
+  check("Export Preview Audio writes a WAV", await until(`document.querySelector('[role=status]').textContent.includes('(preview).wav')`, 15_000), await js<string>(`document.querySelector('[role=status]').textContent`));
+  const wavPath = path.join(home, "Exports", "01_Smoke", "01_Smoke (preview).wav");
+  const wav = readFileSync(wavPath);
+  const ch = wav.readUInt16LE(22), frames = (wav.length - 44) / (2 * ch);
+  const at = (sec: number): number => { let peak = 0; const a = Math.floor(sec * 48_000), b = Math.min(frames, a + 480); for (let i = a; i < b; i++) peak = Math.max(peak, Math.abs(wav.readInt16LE(44 + i * ch * 2)) / 32768); return peak; };
+  check("the preview WAV sounds at step 1", at(0) > 0.05, `peak ${at(0).toFixed(3)}`);
+  const seconds = frames / 48_000, expected = 16 * 0.125 + 1.5; // 16 steps at 120 BPM, plus the render tail
+  check("the preview WAV is the pattern's length plus the tail", Math.abs(seconds - expected) < 0.01, `${seconds.toFixed(3)} s`);
+  check("every note has ended by the end of the WAV", at(seconds - 0.02) < 0.005, `peak at the end ${at(seconds - 0.02).toFixed(4)}`);
+
   // Playback through the fake output.
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
+  await until(`!!document.querySelector('.grid .pad')`);
   await js(`(() => { const s = document.getElementById('midi-out'); s.value = 'fake'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
   await wait(200);
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Play')).click()`);

@@ -1,0 +1,12 @@
+{
+  "name": "@circuit-desk/engine",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@circuit-desk/playback": "*",
+    "@circuit-desk/export": "*"
+  }
+}
