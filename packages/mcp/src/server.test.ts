@@ -14,7 +14,7 @@ import { blankProject } from "../../ncs/src/testing.ts";
 import { createServer } from "./server.ts";
 
 const root = mkdtempSync(join(tmpdir(), "circuit-desk-mcp-"));
-const paths = { library: join(root, "library"), copies: join(root, "copies"), exports: join(root, "exports") };
+const paths = { library: join(root, "library"), copies: join(root, "copies"), exports: join(root, "exports"), socket: join(root, "no-app.sock") };
 const file = join(paths.library, "Tracks", "01_Test Pack", "Sessions", "01_Test.ncs");
 let client: Client;
 

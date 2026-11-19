@@ -1,20 +1,15 @@
 // The bridge between the app window and the project service in the main process. Shared by both
 // sides; the window imports only types and the method list from here.
-import type { ProjectService } from "@circuit-desk/core-service";
+import type { ProjectService, ServiceMethod } from "@circuit-desk/core-service";
 
-/** The service methods the window may call. Anything else is refused by the main process. */
-export const DESK_METHODS = [
-  "listProjects", "openProject", "closeProject", "openProjects", "summary", "getPattern",
-  "setSteps", "setDrumSteps", "setPatternSettings", "getScenes", "setChain", "setScene",
-  "undo", "redo", "diffVsOriginal", "validate", "saveCopy", "exportMidi", "exportAls", "arrangement",
-] as const;
-export type DeskMethod = (typeof DESK_METHODS)[number];
+/** The service methods the window may call: the same list the local socket serves (core-service rpc.ts). */
+export type DeskMethod = ServiceMethod;
 export type DeskService = Pick<ProjectService, DeskMethod>;
 
 export type DeskResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** Commands from the app menu; the window decides what each means where focus is. */
-export type MenuCommand = "undo" | "redo" | "open" | "save-copy" | "export-midi" | "export-als" | "toggle-view" | "play";
+export type MenuCommand = "undo" | "redo" | "open" | "save-copy" | "export-midi" | "export-als" | "toggle-view" | "play" | "changed";
 
 export interface DeskBridge {
   call(method: DeskMethod, args: unknown[]): Promise<DeskResult<unknown>>;

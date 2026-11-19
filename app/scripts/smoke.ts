@@ -5,6 +5,7 @@ import { app, BrowserWindow, Menu, type MenuItem } from "electron";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { SocketClient } from "@circuit-desk/core-service";
 import { openProject, readNotePattern } from "@circuit-desk/ncs";
 import { blankProject } from "../../packages/ncs/src/testing.ts";
 
@@ -101,6 +102,14 @@ async function run(): Promise<void> {
   check("pads animate normally and not under reduced motion", motion.includes("0.09s") && reduced.split(",").every((d) => d.trim() === "0s"), `${motion} → ${reduced}`);
   await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
   wc.debugger.detach();
+
+  // An edit from outside (as the MCP server makes it) shows in the window.
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
+  const link = await SocketClient.connect(path.join(home, ".circuit-desk.sock"));
+  check("the app serves the MCP link", !!link);
+  await link?.call("setSteps", ["p1", "Synth 1", 1, [{ step: 5, notes: [{ note: 72, velocity: 100, gate: 6, micro: 0 }] }]]);
+  check("an edit through the link shows in the window", await until(`document.querySelector('[aria-label^="Step 5:"]').getAttribute('aria-pressed') === 'true'`));
+  link?.close();
 
   // Playback through the fake output.
   await js(`(() => { const s = document.getElementById('midi-out'); s.value = 'fake'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);

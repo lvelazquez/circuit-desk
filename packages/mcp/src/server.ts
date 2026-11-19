@@ -4,7 +4,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { ProjectService, ServiceError, SYNC_RATES, TRACKS, UnsafeWriteError } from "@circuit-desk/core-service";
+import { ProjectService, ServiceError, SocketClient, SYNC_RATES, TRACKS, UnsafeWriteError, type ServiceMethod } from "@circuit-desk/core-service";
 import { DRUM_TRACKS, NOTE_TRACKS } from "@circuit-desk/ncs";
 
 export const VERSION = "0.1.0";
@@ -46,47 +46,79 @@ const READ = { readOnlyHint: true, openWorldHint: false } as const;
 const EDIT = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
 
-export function createServer(service = new ProjectService()): McpServer {
+type Async<T> = { [K in ServiceMethod]: T[K & keyof T] extends (...a: infer A) => infer R ? (...a: A) => Promise<Awaited<R>> : never };
+
+/**
+ * Calls go to the running app when its socket answers (so edits show there at once), otherwise to
+ * the files directly. Project ids belong to whichever side opened the project.
+ */
+export function backend(local: ProjectService, socket: string | null) {
+  let client: SocketClient | null = null;
+  const remote = async (): Promise<SocketClient | null> => {
+    if (!socket) return null;
+    if (client?.isOpen) return client;
+    client = await SocketClient.connect(socket);
+    return client;
+  };
+  const svc = new Proxy({} as Async<ProjectService>, {
+    get: (_t, method: string) => async (...args: unknown[]) => {
+      const c = await remote();
+      if (c) return c.call(method as ServiceMethod, args);
+      return (local[method as ServiceMethod] as (...a: unknown[]) => unknown).apply(local, args);
+    },
+  });
+  return { svc, via: async (): Promise<"app" | "files"> => ((await remote()) ? "app" : "files"), close: () => client?.close() };
+}
+
+export function createServer(service = new ProjectService(), opts: { socket?: string | null } = {}): McpServer {
+  const { svc, via } = backend(service, opts.socket === undefined ? service.paths.socket : opts.socket);
   const server = new McpServer({ name: "circuit-desk", version: VERSION }, {
     instructions: [
       "Reads, edits and exports Novation Circuit Tracks projects (.ncs).",
       "Open a project first; edits stay in memory (with undo) until save_copy, which writes a new file to the copies folder. Nothing here writes to the SD card or to the original file.",
+      "When the Circuit Desk app is running, tools work on the projects open in it and edits show there at once; otherwise they work on the files (see the connection tool).",
       "Numbers are 1-based as on the device. Only fields confirmed on a device can be edited; tempo, swing, mixer, FX and synth patches are read-only for now.",
     ].join(" "),
   });
+
+  server.registerTool("connection", {
+    title: "Connection",
+    description: "Whether tools are working through the running Circuit Desk app (edits show in its window) or directly on the files.",
+    inputSchema: {}, annotations: READ,
+  }, () => run(async () => ({ via: await via(), socket: service.paths.socket })));
 
   server.registerTool("list_projects", {
     title: "List projects",
     description: `Lists the .ncs projects in a folder (default: the library, ${service.paths.library}), with their pack and stored name.`,
     inputSchema: { folder: z.string().optional().describe("Folder to search, recursively") },
     annotations: READ,
-  }, ({ folder }) => run(() => service.listProjects(folder)));
+  }, ({ folder }) => run(() => svc.listProjects(folder)));
 
   server.registerTool("open_project", {
     title: "Open project",
     description: "Opens a project file and returns its id and summary: tracks with notes, saved scenes, CIRCUIT-HACKS data. Opening the same file again returns the same id.",
     inputSchema: { path: z.string().describe("Path to an .ncs file") },
     annotations: READ,
-  }, ({ path }) => run(() => service.summary(service.openProject(path).id)));
+  }, ({ path }) => run(async () => svc.summary((await svc.openProject(path)).id)));
 
   server.registerTool("list_open_projects", {
     title: "List open projects", description: "The projects open in this session, with their number of edits.", inputSchema: {}, annotations: READ,
-  }, () => run(() => service.openProjects()));
+  }, () => run(() => svc.openProjects()));
 
   server.registerTool("close_project", {
     title: "Close project", description: "Closes a project. Unsaved edits are lost.", inputSchema: { project }, annotations: WRITE,
-  }, ({ project: id }) => run(() => { service.closeProject(id); return { closed: id }; }));
+  }, ({ project: id }) => run(async () => { await svc.closeProject(id); return { closed: id }; }));
 
   server.registerTool("get_project", {
     title: "Project summary", description: "Summary of an open project, including how many edits it has.", inputSchema: { project }, annotations: READ,
-  }, ({ project: id }) => run(() => service.summary(id)));
+  }, ({ project: id }) => run(() => svc.summary(id)));
 
   server.registerTool("get_pattern", {
     title: "Get pattern",
     description: "The steps of one pattern that hold notes or hits, with the pattern's first/last step and sync rate. Note tracks: up to 6 notes per step. Drum tracks: velocity, probability, micro-steps.",
     inputSchema: { project, track, pattern },
     annotations: READ,
-  }, ({ project: id, track: t, pattern: p }) => run(() => service.getPattern(id, t, p)));
+  }, ({ project: id, track: t, pattern: p }) => run(() => svc.getPattern(id, t, p)));
 
   server.registerTool("set_steps", {
     title: "Set note steps",
@@ -96,7 +128,7 @@ export function createServer(service = new ProjectService()): McpServer {
       steps: z.array(z.object({ step, notes: z.array(note).max(6).describe("At most 6 notes per step"), probability: probability.optional() })).min(1),
     },
     annotations: EDIT,
-  }, ({ project: id, track: t, pattern: p, steps }) => run(() => changes(service.setSteps(id, t, p, steps))));
+  }, ({ project: id, track: t, pattern: p, steps }) => run(async () => changes(await svc.setSteps(id, t, p, steps))));
 
   server.registerTool("set_drum_steps", {
     title: "Set drum steps",
@@ -111,70 +143,70 @@ export function createServer(service = new ProjectService()): McpServer {
       })).min(1),
     },
     annotations: EDIT,
-  }, ({ project: id, track: t, pattern: p, steps }) => run(() => changes(service.setDrumSteps(id, t, p, steps))));
+  }, ({ project: id, track: t, pattern: p, steps }) => run(async () => changes(await svc.setDrumSteps(id, t, p, steps))));
 
   server.registerTool("set_pattern_settings", {
     title: "Set pattern length and rate",
     description: "Sets a pattern's first and last step (its length) and its sync rate (the length of one step).",
     inputSchema: { project, track, pattern, firstStep: step.optional(), lastStep: step.optional(), syncRate: z.enum(SYNC_RATES).optional().describe("1/16 is the default; T = triplet") },
     annotations: EDIT,
-  }, ({ project: id, track: t, pattern: p, ...s }) => run(() => changes(service.setPatternSettings(id, t, p, {
+  }, ({ project: id, track: t, pattern: p, ...s }) => run(async () => changes(await svc.setPatternSettings(id, t, p, {
     ...(s.firstStep !== undefined ? { firstStep: s.firstStep } : {}), ...(s.lastStep !== undefined ? { lastStep: s.lastStep } : {}), ...(s.syncRate !== undefined ? { syncRate: s.syncRate } : {}),
   }))));
 
   server.registerTool("get_scenes", {
     title: "Get scenes and chains", description: "The scene chain, the current pattern chain of each track, and the 16 scenes with their chains.", inputSchema: { project }, annotations: READ,
-  }, ({ project: id }) => run(() => service.getScenes(id)));
+  }, ({ project: id }) => run(() => svc.getScenes(id)));
 
   server.registerTool("set_chain", {
     title: "Set chain",
     description: 'Sets the scene chain (target "scenes", scenes 1–16) or a track\'s current pattern chain (patterns 1–8).',
     inputSchema: { project, target: z.union([z.literal("scenes"), track]), first: z.number().int().min(1).max(16), last: z.number().int().min(1).max(16) },
     annotations: EDIT,
-  }, ({ project: id, target, first, last }) => run(() => changes(service.setChain(id, target, first, last))));
+  }, ({ project: id, target, first, last }) => run(async () => changes(await svc.setChain(id, target, first, last))));
 
   server.registerTool("set_scene", {
     title: "Set scene",
     description: "Sets the pattern chain of the named tracks in a scene (other tracks keep theirs) and marks the scene saved.",
     inputSchema: { project, scene: z.number().int().min(1).max(16), chains: z.partialRecord(track, chain) },
     annotations: EDIT,
-  }, ({ project: id, scene, chains }) => run(() => changes(service.setScene(id, scene, chains))));
+  }, ({ project: id, scene, chains }) => run(async () => changes(await svc.setScene(id, scene, chains))));
 
   server.registerTool("undo", {
     title: "Undo", description: "Undoes the last edit of a project.", inputSchema: { project }, annotations: WRITE,
-  }, ({ project: id }) => run(() => ({ undone: service.undo(id) })));
+  }, ({ project: id }) => run(async () => ({ undone: await svc.undo(id) })));
 
   server.registerTool("redo", {
     title: "Redo", description: "Redoes the last undone edit.", inputSchema: { project }, annotations: WRITE,
-  }, ({ project: id }) => run(() => ({ redone: service.redo(id) })));
+  }, ({ project: id }) => run(async () => ({ redone: await svc.redo(id) })));
 
   server.registerTool("diff_vs_original", {
     title: "Changes since opening", description: "Every byte range that differs from the file as opened, labelled with its field and how far that field is trusted.", inputSchema: { project }, annotations: READ,
-  }, ({ project: id }) => run(() => service.diffVsOriginal(id)));
+  }, ({ project: id }) => run(() => svc.diffVsOriginal(id)));
 
   server.registerTool("validate", {
     title: "Validate",
     description: "Checks the project as it would be saved: CIRCUIT-HACKS checksum, no unverified field changed. Also lists what an export would not carry over.",
     inputSchema: { project }, annotations: READ,
-  }, ({ project: id }) => run(() => service.validate(id)));
+  }, ({ project: id }) => run(() => svc.validate(id)));
 
   server.registerTool("get_fields", {
     title: "Get raw fields",
     description: "The file's field registry: offset, size, how far each field is trusted (verified / partial / unknown) and the evidence, with raw bytes for small fields.",
     inputSchema: { project, field: z.string().optional().describe("One field id, e.g. tempo") }, annotations: READ,
-  }, ({ project: id, field }) => run(() => service.fields(id, field)));
+  }, ({ project: id, field }) => run(() => svc.fields(id, field)));
 
   server.registerTool("save_copy", {
     title: "Save a copy",
     description: `Writes the project, with its edits, to a new file in ${service.paths.copies}. Never overwrites a file and never writes to the card.`,
     inputSchema: { project, fileName: z.string().optional().describe("Base name for the copy; a time stamp is added") }, annotations: WRITE,
-  }, ({ project: id, fileName }) => run(() => ({ path: service.saveCopy(id, fileName) })));
+  }, ({ project: id, fileName }) => run(async () => ({ path: await svc.saveCopy(id, fileName) })));
 
   server.registerTool("export_midi", {
     title: "Export MIDI",
     description: `Writes a multitrack MIDI file (one track per Circuit track, tempo, scene markers) to ${service.paths.exports}.`,
     inputSchema: { project, source, repeats }, annotations: WRITE,
-  }, ({ project: id, source: s, repeats: r }) => run(() => service.exportMidi(id, { ...(s ? { source: s } : {}), ...(r ? { repeats: r } : {}) })));
+  }, ({ project: id, source: s, repeats: r }) => run(() => svc.exportMidi(id, { ...(s ? { source: s } : {}), ...(r ? { repeats: r } : {}) })));
 
   server.registerTool("export_als", {
     title: "Export Ableton Live set",
@@ -185,7 +217,7 @@ export function createServer(service = new ProjectService()): McpServer {
       instruments: z.enum(["live", "none"]).optional().describe("live (default): Live's starter kit and synths, drums on the kit's keys; none: empty tracks on the Circuit's own notes, to route to the Circuit"),
     },
     annotations: WRITE,
-  }, ({ project: id, source: s, repeats: r, arrangement, instruments }) => run(() => service.exportAls(id, {
+  }, ({ project: id, source: s, repeats: r, arrangement, instruments }) => run(() => svc.exportAls(id, {
     ...(s ? { source: s } : {}), ...(r ? { repeats: r } : {}), ...(arrangement !== undefined ? { arrangement } : {}), ...(instruments ? { instruments } : {}),
   })));
 

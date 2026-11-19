@@ -136,6 +136,11 @@ export function App() {
         else if (command === "export-midi") void exportTo("midi");
         else if (command === "export-als") void exportTo("als");
         else if (command === "toggle-view") setView((v) => (v === "circuit" ? "editor" : "circuit"));
+        else if (command === "changed") {
+          // Claude edited or opened a project through the MCP link.
+          setVersion((v) => v + 1);
+          void call("openProjects").then((o) => setProjectId((cur) => cur ?? o[0]?.id ?? null), fail);
+        }
         else if (command === "play") { if (player.playing) player.stop(); else void player.play(); }
       });
     } catch { return undefined; }

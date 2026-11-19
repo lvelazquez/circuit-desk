@@ -4,8 +4,8 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, session, shell, type MenuItemConstructorOptions } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { isInside, ProjectService, ServiceError, UnsafeWriteError } from "@circuit-desk/core-service";
-import { DESK_METHODS, type DeskMethod, type DeskResult, type MenuCommand } from "./api.ts";
+import { dispatch, isInside, ProjectService, serveSocket } from "@circuit-desk/core-service";
+import type { DeskResult, MenuCommand } from "./api.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(here, "..", "dist");
@@ -36,18 +36,11 @@ function isAppUrl(url: string): boolean {
 }
 
 function bridge(): void {
-  const allowed = new Set<string>(DESK_METHODS);
   ipcMain.handle("desk:call", async (event, method: unknown, args: unknown): Promise<DeskResult<unknown>> => {
     if (!isAppUrl(event.senderFrame?.url ?? "")) return { ok: false, error: "refused: not the app window" };
-    if (typeof method !== "string" || !allowed.has(method) || !Array.isArray(args)) return { ok: false, error: `refused: ${String(method)} is not a service method` };
-    try {
-      const f = service[method as DeskMethod] as (...a: unknown[]) => unknown;
-      return { ok: true, value: await f.apply(service, args) };
-    } catch (e) {
-      if (e instanceof ServiceError || e instanceof UnsafeWriteError || e instanceof RangeError) return { ok: false, error: e.message };
-      console.error(e);
-      return { ok: false, error: `unexpected error: ${(e as Error).message}` };
-    }
+    const r = await dispatch(service, method, args);
+    if (!r.ok && r.error.startsWith("unexpected")) console.error(r.error);
+    return r;
   });
   ipcMain.handle("desk:pickProject", async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -108,6 +101,11 @@ void app.whenReady().then(() => {
   const start = process.env["CIRCUIT_DESK_OPEN"];
   if (start) service.openProject(start);
   createWindow();
+  // The MCP server talks to this app through a private local socket; its edits refresh the window.
+  serveSocket(service, service.paths.socket, () => send("changed")).then(
+    (server) => app.on("will-quit", () => server.close()),
+    (e: unknown) => console.error(`MCP link not started: ${(e as Error).message}`),
+  );
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

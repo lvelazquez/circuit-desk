@@ -9,6 +9,8 @@ export interface DeskPaths {
   library: string;
   copies: string;
   exports: string;
+  /** The running app's local socket, which the MCP server uses when it is there. */
+  socket: string;
 }
 
 export function defaultPaths(env: NodeJS.ProcessEnv = process.env): DeskPaths {
@@ -17,6 +19,7 @@ export function defaultPaths(env: NodeJS.ProcessEnv = process.env): DeskPaths {
     library: env["CIRCUIT_DESK_LIBRARY"] ?? join(home, "Card copy"),
     copies: env["CIRCUIT_DESK_COPIES"] ?? join(home, "Copies"),
     exports: env["CIRCUIT_DESK_EXPORTS"] ?? join(home, "Exports"),
+    socket: env["CIRCUIT_DESK_SOCKET"] ?? join(home, ".circuit-desk.sock"),
   };
 }
 
