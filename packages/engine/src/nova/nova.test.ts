@@ -44,11 +44,14 @@ describe("Nova voice (slice)", () => {
     expect(x.every((v) => Number.isFinite(v) && Math.abs(v) < 1)).toBe(true);
   });
 
-  it("transposes by the oscillator semitones and the keyboard octave", () => {
+  it("transposes by the oscillator semitones, not by the pads' keyboard octave", () => {
     const up = render(values({ "osc1.semitones": 76 }), (s) => s.schedule({ frame: 0, type: "on", note: 57, velocity: 100 }), 1.2);
     expect(frequency(up, 0.2, 1.2)).toBeCloseTo(440, -1);
-    const oct = render(values({ "voice.octave": 65 }), (s) => s.schedule({ frame: 0, type: "on", note: 57, velocity: 100 }), 1.2);
-    expect(frequency(oct, 0.2, 1.2)).toBeCloseTo(440, -1);
+    // The keyboard octave shifts what the pads send; a sequenced note already includes it.
+    for (const octave of [60, 63, 65, 68]) {
+      const x = render(values({ "voice.octave": octave }), (s) => s.schedule({ frame: 0, type: "on", note: 69, velocity: 100 }), 1.2);
+      expect(frequency(x, 0.2, 1.2), `octave byte ${octave}`).toBeCloseTo(440, -1);
+    }
   });
 
   it("starts a note on its exact frame", () => {

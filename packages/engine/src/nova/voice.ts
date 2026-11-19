@@ -72,12 +72,16 @@ export function novaParams(raw: Readonly<Record<string, number>>, macroPositions
     if (x === undefined) throw new Error(`patch value ${id} missing`);
     return x;
   };
-  const octave = 12 * (g("voice.octave") - 64);
+  // "Keyboard Octave" (byte 35) is the octave the device's pads are set to, saved with the patch
+  // (NOTAS:3632: Octave ▲/▼ in the note view is the keyboard octave). A pad sends the shifted note,
+  // and the sequencer stores that note, so the voice must not shift it again. Applying it played
+  // 198 of the card's 304 project patches one to four octaves low, many below hearing (e.g.
+  // "LivingDead" in 00_Delorean Dream-Tracks/40_SESSION: Osc 1 at 16 Hz). To confirm on a device.
   const osc = (n: 1 | 2): OscParams => ({
     wave: g(`osc${n}.wave`),
     width: 0.05 + 0.9 * (g(`osc${n}.pulseWidth`) / 127),
     morph: g(`osc${n}.waveInterpolate`) / 127,
-    transpose: octave + (g(`osc${n}.semitones`) - 64) + (g(`osc${n}.cents`) - 64) / 100,
+    transpose: (g(`osc${n}.semitones`) - 64) + (g(`osc${n}.cents`) - 64) / 100,
     level: C.level(g(`mixer.osc${n}`)),
   });
   const env = (n: 1 | 2 | 3) => ({

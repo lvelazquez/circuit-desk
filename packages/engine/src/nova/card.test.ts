@@ -34,9 +34,11 @@ function patches(): { where: string; bytes: Uint8Array }[] {
 }
 
 describe.skipIf(!existsSync(TRACKS))("Nova voice over the card's patches", () => {
-  // With macros applied (the firmware's formula) most patches sound on one C4; the few that stay
-  // quiet take their level from LFOs (plan E2). The bound, 10 × the voice gain, catches runaway
-  // gain such as an unstable filter. Levels over real notes: tools/synth-audit.ts.
+  // With macros applied (the firmware's formula) and the keyboard octave left to the pads, most
+  // patches sound on one C4: 10 of 1 050 stay below 0.001 (2026-11-19, tools/nova-levels.ts); those
+  // take their level from LFOs (plan E2). The loudest is "Random Decay" (pre and post FX +9 dB) at
+  // 10.9 × the voice gain; the bound, 12 ×, catches runaway gain such as an unstable filter.
+  // Levels over real notes: tools/synth-audit.ts.
   it("every patch renders finite and bounded, and silent patches stay rare", () => {
     const all = patches();
     const silent: string[] = [];
@@ -48,9 +50,9 @@ describe.skipIf(!existsSync(TRACKS))("Nova voice over the card's patches", () =>
       s.process(out);
       let peak = 0;
       for (const v of out) { expect(Number.isFinite(v), p.where).toBe(true); peak = Math.max(peak, Math.abs(v)); }
-      expect(peak, p.where).toBeLessThan(10 * VOICE_GAIN);
+      expect(peak, p.where).toBeLessThan(12 * VOICE_GAIN);
       if (peak < 1e-3) silent.push(p.where);
     }
-    expect(silent.length / all.length).toBeLessThan(0.06);
+    expect(silent.length / all.length).toBeLessThan(0.02);
   }, 120_000);
 });
