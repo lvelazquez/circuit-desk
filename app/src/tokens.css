@@ -18,6 +18,7 @@
   --color-focus-ring: #ffffff;
   --color-danger: #ff6b6b;
   --color-outside-range: #0c0d10;
+  --color-playhead: #ffffff;
 
   /* Track colours (inspired by the device's track buttons; not Novation's palette). */
   --color-track-synth1: #a78bfa;
@@ -77,6 +78,7 @@
   /* Emphasis. */
   --opacity-muted: 0.5;
   --opacity-soft: 0.7;
+  --opacity-playhead: 0.12;
 
   /* Motion: duration and easing are used in named pairs, e.g. Fast/SmoothOut. */
   --motion-duration-fast: 90ms;

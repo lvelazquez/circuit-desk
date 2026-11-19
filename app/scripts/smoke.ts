@@ -28,7 +28,7 @@ async function run(): Promise<void> {
   if (!win) throw new Error("no window");
   const wc = win.webContents;
   if (wc.isLoading()) await new Promise<void>((r) => wc.once("did-finish-load", () => r()));
-  const js = <T>(code: string) => wc.executeJavaScript(code) as Promise<T>;
+  const js = <T>(code: string) => (wc.executeJavaScript(code) as Promise<T>).catch((e: unknown) => { throw new Error(`${(e as Error).message} in: ${code.slice(0, 120)}`); });
   const until = async (code: string, ms = 3000): Promise<boolean> => { for (let t = 0; t < ms; t += 100) { if (await js<boolean>(code)) return true; await wait(100); } return false; };
   const key = async (keyCode: string, modifiers: ("shift" | "alt")[] = []): Promise<void> => {
     wc.sendInputEvent({ type: "keyDown", keyCode, modifiers });
@@ -43,6 +43,16 @@ async function run(): Promise<void> {
     item.click();
   };
   const step1 = `document.querySelector('[aria-label^="Step 1:"]')`;
+
+  // A fake MIDI output, installed before the page loads, so playback is checked without sending to real ports.
+  wc.debugger.attach();
+  await wc.debugger.sendCommand("Page.enable");
+  await wc.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", { source: `
+    window.__sent = [];
+    const out = { id: "fake", name: "Smoke output", send: (bytes, at) => window.__sent.push({ bytes: [...bytes], at }) };
+    navigator.requestMIDIAccess = async () => ({ outputs: new Map([["fake", out]]), onstatechange: null });` });
+  wc.reload();
+  await new Promise<void>((r) => wc.once("did-finish-load", () => r()));
 
   check("project opens in the Circuit view", await until(`document.querySelectorAll('.grid .pad').length === 32`), `${await js<number>(`document.querySelectorAll('.grid .pad').length`)} pads`);
   check("8 track buttons", (await js<number>(`document.querySelectorAll('[role=radiogroup][aria-label=Track] [role=radio]').length`)) === 8);
@@ -85,13 +95,25 @@ async function run(): Promise<void> {
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
   await until(`!!document.querySelector('.grid .pad')`);
   const motion = await js<string>(`getComputedStyle(document.querySelector('.grid .pad')).transitionDuration`);
-  wc.debugger.attach();
   await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   await wait(200);
   const reduced = await js<string>(`getComputedStyle(document.querySelector('.grid .pad')).transitionDuration`);
   check("pads animate normally and not under reduced motion", motion.includes("0.09s") && reduced.split(",").every((d) => d.trim() === "0s"), `${motion} → ${reduced}`);
   await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
   wc.debugger.detach();
+
+  // Playback through the fake output.
+  await js(`(() => { const s = document.getElementById('midi-out'); s.value = 'fake'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await wait(200);
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Play')).click()`);
+  check("Play sends the pattern's notes with timestamps", await until(`window.__sent.some(m => m.bytes[0] === 0x90 && m.bytes[1] === 60 && m.at > 0)`), JSON.stringify(await js(`window.__sent.slice(0, 3)`)));
+  check("the playhead shows on the grid", await until(`!!document.querySelector('.pad[data-playing=true]')`));
+  const shotPlaying = path.join(home, "playing.png");
+  writeFileSync(shotPlaying, (await wc.capturePage()).toPNG());
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Stop')).click()`);
+  check("Stop sends All Notes Off and clears the playhead", await until(`window.__sent.some(m => m.bytes[0] === 0xb0 && m.bytes[1] === 123) && !document.querySelector('[data-playing=true]')`));
+  const sysex = await js<number>(`window.__sent.filter(m => m.bytes[0] === 0xf0).length`);
+  check("no SysEx is ever sent", sysex === 0);
 
   const shot = path.join(home, "circuit-view.png");
   writeFileSync(shot, (await wc.capturePage()).toPNG());
@@ -100,9 +122,9 @@ async function run(): Promise<void> {
   const shot2 = path.join(home, "editor-view.png");
   writeFileSync(shot2, (await wc.capturePage()).toPNG());
   console.log(results.join("\n"));
-  console.log(`screenshots: ${shot} ${shot2}`);
+  console.log(`screenshots: ${shot} ${shot2} ${shotPlaying}`);
 }
 
 void app.whenReady().then(() => setTimeout(() => {
-  run().catch((e: unknown) => { console.error(e); failed = true; }).finally(() => { app.exit(failed ? 1 : 0); });
+  run().catch((e: unknown) => { console.error(e); failed = true; }).finally(() => { if (failed) console.log(results.join("\n")); app.exit(failed ? 1 : 0); });
 }, 300));

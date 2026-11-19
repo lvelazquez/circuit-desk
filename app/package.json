@@ -5,7 +5,8 @@
   "main": "electron/main.ts",
   "dependencies": {
     "@circuit-desk/core-service": "*",
-    "@circuit-desk/ncs": "*"
+    "@circuit-desk/ncs": "*",
+    "@circuit-desk/playback": "*"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

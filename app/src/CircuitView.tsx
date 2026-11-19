@@ -14,6 +14,8 @@ export interface CircuitProps {
   pattern: number;
   data: PatternData;
   selectedStep: number | null;
+  /** The step playing in this pattern, if it is playing. */
+  playStep: number | null;
   page: 0 | 1;
   octave: number;
   currentNote: number;
@@ -121,7 +123,7 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
                 return (
                   <div role="gridcell" key={cell} style={{ display: "contents" }}>
                     <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)}
-                      data-on={ns.length > 0} data-selected={p.selectedStep === s} data-outside={outside}
+                      data-on={ns.length > 0} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
                       aria-pressed={ns.length > 0} aria-current={p.selectedStep === s}
                       aria-label={`Step ${s}: ${ns.length ? ns.map((n) => noteSpoken(n.note)).join(", ") : "empty"}${outside ? ", outside the pattern" : ""}`}
                       onClick={() => { roving.setActive(cell); p.onSelectStep(s); if (!ns.length) p.onNoteSteps([toggleStep(notes, s, p.currentNote)], `step ${s}`); }}
@@ -168,7 +170,7 @@ function DrumPads(p: CircuitProps & { data: DrumPatternData }) {
               const cell = r * 8 + c, s = cell + 1, h = hits.get(s), outside = s < first || s > last;
               return (
                 <div role="gridcell" key={cell} style={{ display: "contents" }}>
-                  <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)} data-on={!!h} data-selected={p.selectedStep === s} data-outside={outside}
+                  <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)} data-on={!!h} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
                     aria-pressed={!!h} aria-current={p.selectedStep === s}
                     aria-label={`Step ${s}: ${h ? `hit, velocity ${h.velocity}` : "empty"}${outside ? ", outside the pattern" : ""}`}
                     onClick={() => { roving.setActive(cell); toggle(s); }}

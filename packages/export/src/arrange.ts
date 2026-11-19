@@ -31,6 +31,9 @@ export interface PatternPlay {
   pattern: number;
   tick: number;
   length: number;
+  /** Ticks per step, and the pattern's first step (1-based), to show where playback is. */
+  stepTicks: number;
+  firstStep: number;
 }
 
 export interface PatternClip {
@@ -208,7 +211,8 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
           const len = Math.min(lengthOf(t, i), sceneLength - at);
           const dir = patterns[t]![i]!.settings.direction;
           if (dir !== 0) directions.add(`${TRACK_NAMES[t]} pattern ${i + 1}`);
-          tracks[t]!.plays.push({ pattern: i, tick: tick + at, length: len });
+          const st = patterns[t]![i]!.settings;
+          tracks[t]!.plays.push({ pattern: i, tick: tick + at, length: len, stepTicks: stepTicks(st), firstStep: span(st).first + 1 });
           for (const n of patternNotes[t]![i]!) if (n.tick < len) tracks[t]!.notes.push({ ...n, tick: tick + at + n.tick });
           at += len; k++;
         }

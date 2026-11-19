@@ -6,7 +6,7 @@ import type { ProjectService } from "@circuit-desk/core-service";
 export const DESK_METHODS = [
   "listProjects", "openProject", "closeProject", "openProjects", "summary", "getPattern",
   "setSteps", "setDrumSteps", "setPatternSettings", "getScenes", "setChain", "setScene",
-  "undo", "redo", "diffVsOriginal", "validate", "saveCopy", "exportMidi", "exportAls",
+  "undo", "redo", "diffVsOriginal", "validate", "saveCopy", "exportMidi", "exportAls", "arrangement",
 ] as const;
 export type DeskMethod = (typeof DESK_METHODS)[number];
 export type DeskService = Pick<ProjectService, DeskMethod>;
@@ -14,7 +14,7 @@ export type DeskService = Pick<ProjectService, DeskMethod>;
 export type DeskResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** Commands from the app menu; the window decides what each means where focus is. */
-export type MenuCommand = "undo" | "redo" | "open" | "save-copy" | "export-midi" | "export-als" | "toggle-view";
+export type MenuCommand = "undo" | "redo" | "open" | "save-copy" | "export-midi" | "export-als" | "toggle-view" | "play";
 
 export interface DeskBridge {
   call(method: DeskMethod, args: unknown[]): Promise<DeskResult<unknown>>;

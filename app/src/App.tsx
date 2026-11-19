@@ -9,7 +9,8 @@ import { bridge, call, type DrumPatternData, type Listing, type PatternData, typ
 import { DrumGrid, PianoRoll } from "./EditorView.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { Library } from "./Library.tsx";
-import { DRUM_NAMES, isDrum, isNoteTrack } from "./tracks.ts";
+import { DRUM_NAMES, isDrum, isNoteTrack, TRACK_NAMES } from "./tracks.ts";
+import { usePlayer } from "./usePlayer.ts";
 
 type View = "circuit" | "editor";
 interface Status { text: string; error?: boolean }
@@ -35,6 +36,12 @@ export function App() {
   const [version, setVersion] = useState(0);
 
   const fail = (e: unknown): void => setStatus({ text: (e as Error).message, error: true });
+  const player = usePlayer(projectId, version);
+  /** The step playing on `t`, if it is playing the pattern on screen. */
+  const playStep = (t: TrackName): number | null => {
+    const h = player.heads[TRACK_NAMES.indexOf(t as (typeof TRACK_NAMES)[number])];
+    return h && h.pattern === pattern ? h.step : null;
+  };
 
   useEffect(() => {
     void (async () => {
@@ -129,9 +136,10 @@ export function App() {
         else if (command === "export-midi") void exportTo("midi");
         else if (command === "export-als") void exportTo("als");
         else if (command === "toggle-view") setView((v) => (v === "circuit" ? "editor" : "circuit"));
+        else if (command === "play") { if (player.playing) player.stop(); else void player.play(); }
       });
     } catch { return undefined; }
-  }, [undo, pick, saveCopy, exportTo]);
+  }, [undo, pick, saveCopy, exportTo, player]);
 
   const chooseTrack = (t: TrackName): void => { setTrack(t); setStep(null); };
   const choosePattern = (n: number): void => { setPattern(n); setStep(null); setDrumSel(null); };
@@ -149,6 +157,16 @@ export function App() {
           <button type="button" className="btn" aria-pressed={view === "circuit"} onClick={() => setView("circuit")}>Circuit</button>
           <button type="button" className="btn" aria-pressed={view === "editor"} onClick={() => setView("editor")}>Editor</button>
         </div>
+        <div role="group" aria-label="Transport" className="row" style={{ margin: 0 }}>
+          <button type="button" className="btn" aria-pressed={player.playing} disabled={!projectId}
+            onClick={() => (player.playing ? player.stop() : void player.play())}>{player.playing ? "■ Stop" : "▶ Play"}</button>
+          <label className="visually-hidden" htmlFor="midi-out">MIDI output</label>
+          <select id="midi-out" value={player.portId ?? ""} onChange={(e) => player.choosePort(e.target.value)}>
+            <option value="">{player.ports.length ? "MIDI output…" : "No MIDI outputs"}</option>
+            {player.ports.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+          <label><input type="checkbox" checked={player.clock} disabled={player.playing} onChange={(e) => player.setClock(e.target.checked)} /> Clock</label>
+        </div>
         <button type="button" className="btn" onClick={() => void pick()}>Open…</button>
         <button type="button" className="btn" disabled={!summary?.edits} onClick={() => void undo()}>Undo</button>
         <button type="button" className="btn" disabled={!summary?.canRedo} onClick={() => void undo(true)}>Redo</button>
@@ -161,7 +179,7 @@ export function App() {
         <main className="workspace" aria-label={view === "circuit" ? "Circuit view" : "Editor view"}>
           {!summary || !data ? <p className="empty">{projectId ? "Loading…" : "Choose a project in the library, or File › Open Project."}</p>
             : view === "circuit" ? (
-              <CircuitView summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
+              <CircuitView playStep={playStep(track)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
                 onTrack={chooseTrack} onPattern={choosePattern} onSelectStep={setStep} onPage={setPage} onOctave={setOctave} onCurrentNote={setCurrentNote}
                 onNoteSteps={onNoteSteps} onDrumStep={(s, velocity, label) => { if (isDrum(track)) onDrumSteps(track, [{ step: s, velocity }], label); }} />
             ) : (
@@ -178,11 +196,11 @@ export function App() {
                     </select>
                   </label>
                 </div>
-                {data.kind === "notes" ? <PianoRoll track={track} pattern={pattern} data={data} onNoteSteps={onNoteSteps} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} />
+                {data.kind === "notes" ? <PianoRoll playStep={playStep(track)} track={track} pattern={pattern} data={data} onNoteSteps={onNoteSteps} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} />
                   : <p className="hint">Choose a Synth or MIDI track for the piano roll.</p>}
                 <h2 className="visually-hidden">Drums</h2>
                 <div style={{ marginTop: "var(--space-xl)" }}>
-                  <DrumGrid pattern={pattern} drums={drums} selected={drumSel} onSelect={(d, s) => setDrumSel({ drum: d, step: s })} onDrumSteps={onDrumSteps} />
+                  <DrumGrid playSteps={DRUM_NAMES.map(playStep)} pattern={pattern} drums={drums} selected={drumSel} onSelect={(d, s) => setDrumSel({ drum: d, step: s })} onDrumSteps={onDrumSteps} />
                 </div>
               </>
             )}
@@ -195,6 +213,8 @@ export function App() {
       </div>
       <footer className="statusbar">
         <span role="status" aria-live="polite" className={status.error ? "error" : undefined}>{status.text}</span>
+        {player.error && <span role="alert" className="error">{player.error}</span>}
+        <span>{player.playing ? "Playing the current chains" : ""}</span>
       </footer>
     </div>
   );

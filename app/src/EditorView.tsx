@@ -14,8 +14,8 @@ const tokenPx = (el: Element, name: string): number => parseFloat(getComputedSty
 /** Notes are drawn at least this opaque, reaching full at velocity 127, so soft notes stay visible. */
 const VELOCITY_ALPHA_FLOOR = 0.45;
 
-export function PianoRoll({ track, pattern, data, onNoteSteps, onSelectStep }: {
-  track: TrackName; pattern: number; data: NotePatternData;
+export function PianoRoll({ track, pattern, data, onNoteSteps, onSelectStep, playStep }: {
+  track: TrackName; playStep: number | null; pattern: number; data: NotePatternData;
   onNoteSteps: (steps: NoteStepIn[], label: string) => void; onSelectStep: (s: number) => void;
 }) {
   const notes = stepMap(data.steps);
@@ -87,6 +87,7 @@ export function PianoRoll({ track, pattern, data, onNoteSteps, onSelectStep }: {
             <div key={`${n.step}-${n.note}`} className="roll-note" data-selected={n.step === cursor.step && n.note === cursor.pitch}
               style={vars({ x: n.step - 1 + n.micro / 6, y: top - n.note, w: n.gate / 6, alpha: VELOCITY_ALPHA_FLOOR + ((1 - VELOCITY_ALPHA_FLOOR) * n.velocity) / 127 })} />
           ))}
+          {playStep !== null && <div className="roll-playhead" style={vars({ x: playStep - 1 })} />}
           <div className="roll-cursor" style={vars({ x: cursor.step - 1, y: top - cursor.pitch })} />
         </div>
       </div>
@@ -102,8 +103,8 @@ export function PianoRoll({ track, pattern, data, onNoteSteps, onSelectStep }: {
   );
 }
 
-export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps }: {
-  pattern: number; drums: readonly DrumPatternData[]; selected: { drum: DrumTrackName; step: number } | null;
+export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps, playSteps }: {
+  pattern: number; playSteps: (number | null)[]; drums: readonly DrumPatternData[]; selected: { drum: DrumTrackName; step: number } | null;
   onSelect: (drum: DrumTrackName, step: number) => void; onDrumSteps: (drum: DrumTrackName, steps: DrumStepIn[], label: string) => void;
 }) {
   const roving = useRoving(4, STEPS);
@@ -123,7 +124,7 @@ export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps }: {
                 return (
                   <div role="gridcell" key={k} style={{ display: "contents" }}>
                     <button ref={roving.ref(cell)} type="button" className="drum-cell" style={trackStyle(name)} tabIndex={roving.tabIndex(cell)}
-                      data-on={!!h} data-beat={k > 0 && k % 4 === 0} data-selected={selected?.drum === name && selected.step === s}
+                      data-on={!!h} data-beat={k > 0 && k % 4 === 0} data-selected={selected?.drum === name && selected.step === s} data-playing={playSteps[r] === s}
                       aria-pressed={!!h} aria-label={`${name} step ${s}: ${h ? `velocity ${h.velocity}` : "empty"}`}
                       onClick={() => { roving.setActive(cell); toggle(); }}
                       onFocus={() => onSelect(name, s)}

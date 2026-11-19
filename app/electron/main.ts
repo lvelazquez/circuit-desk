@@ -1,7 +1,7 @@
 // Electron shell. The built window (app/dist) is served from a private app:// origin; the project
 // service runs here, in the main process, and the window reaches it only through the allowlisted
 // bridge in api.ts. Set CIRCUIT_DESK_DEV_URL to load the Vite dev server instead.
-import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell, type MenuItemConstructorOptions } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, session, shell, type MenuItemConstructorOptions } from "electron";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isInside, ProjectService, ServiceError, UnsafeWriteError } from "@circuit-desk/core-service";
@@ -61,6 +61,15 @@ function bridge(): void {
   });
 }
 
+/**
+ * Web MIDI for playback is the one permission the window gets, and only without SysEx: the app
+ * sends notes and clock, never messages that could change a device's settings. All else is refused.
+ */
+function permissions(): void {
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => permission === "midi" && isAppUrl(origin));
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => callback(permission === "midi" && isAppUrl(details.requestingUrl)));
+}
+
 function send(command: MenuCommand): void {
   (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0])?.webContents.send("desk:menu", command);
 }
@@ -72,6 +81,7 @@ function menu(): void {
     { label: "File", submenu: [item("Open Project…", "CmdOrCtrl+O", "open"), item("Save a Copy", "CmdOrCtrl+S", "save-copy"), { type: "separator" }, item("Export MIDI", "CmdOrCtrl+E", "export-midi"), item("Export Live Set", "CmdOrCtrl+Shift+E", "export-als"), { type: "separator" }, { role: "close" }] },
     // Undo and redo go to the window, which undoes text in a focused field or the project's last edit.
     { label: "Edit", submenu: [item("Undo", "CmdOrCtrl+Z", "undo"), item("Redo", "Shift+CmdOrCtrl+Z", "redo"), { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
+    { label: "Transport", submenu: [item("Play / Stop", "CmdOrCtrl+Return", "play")] },
     { label: "View", submenu: [item("Circuit / Editor", "CmdOrCtrl+1", "toggle-view"), { type: "separator" }, { role: "reload" }, { role: "toggleDevTools" }, { role: "togglefullscreen" }] },
     { role: "windowMenu" },
   ];
@@ -92,6 +102,7 @@ function createWindow(): BrowserWindow {
 app.setName("Circuit Desk");
 void app.whenReady().then(() => {
   serveDist();
+  permissions();
   bridge();
   menu();
   const start = process.env["CIRCUIT_DESK_OPEN"];

@@ -298,6 +298,11 @@ export class ProjectService {
     try { return X.arrange(o.project, opts); } catch (e) { throw new ServiceError((e as Error).message); }
   }
 
+  /** The project laid out in time, for playback (same as the exports use). */
+  arrangement(id: string, opts: { source?: "scenes" | "current"; repeats?: number } = {}): X.Arrangement {
+    return this.arrange(this.get(id), opts);
+  }
+
   exportMidi(id: string, opts: { source?: "scenes" | "current"; repeats?: number } = {}): { path: string; notes: string[] } {
     const o = this.get(id), a = this.arrange(o, opts);
     const path = join(this.exportDir(o), `${basename(o.path).replace(/\.ncs$/i, "")}.mid`);
