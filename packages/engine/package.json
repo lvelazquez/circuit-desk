@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./nova-worklet": "./src/nova/worklet.ts"
   },
   "dependencies": {
     "@circuit-desk/playback": "*",
-    "@circuit-desk/export": "*"
+    "@circuit-desk/export": "*",
+    "@circuit-desk/patch": "*"
   }
 }

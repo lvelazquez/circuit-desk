@@ -1,0 +1,206 @@
+// The Nova voice, first slice (plan "E-slice"): oscillators, mixer, filter, three envelopes, the
+// polyphony modes and portamento. LFOs, the mod matrix, macros and the per-patch FX come in E2.
+// Pure DSP: it renders into Float32Arrays and keeps time in frames.
+import { FIRST_WAVETABLE, PATCH_PARAMS } from "@circuit-desk/patch";
+import * as C from "./curves.ts";
+import { Envelope, Noise, Svf, type SvfMode, saw, sawPulse, sine, triangle } from "./dsp.ts";
+
+/** The device updates parameters per 32-frame block (NOTAS:3098). */
+export const BLOCK = 32;
+/** Synth 1 and 2 share 12 voice slots on the device (NOTAS:4397): 6 each. */
+export const VOICES = 6;
+/** Headroom so a 6-voice chord through the mixer rarely clips. */
+const VOICE_GAIN = 0.2;
+/** How far envelope 2 at full depth moves the cutoff, semitones (a guess, like the curves). */
+const ENV2_RANGE = 60;
+
+export interface OscParams { wave: number; width: number; morph: number; transpose: number; level: number }
+
+export interface NovaParams {
+  polyphony: 0 | 1 | 2;
+  portamento: number;
+  preGlide: number;
+  osc: [OscParams, OscParams];
+  ring: number;
+  noise: number;
+  preFx: number;
+  postFx: number;
+  routing: number;
+  drive: number;
+  filterType: number;
+  cutoff: number;
+  tracking: number;
+  q: number;
+  env2ToCutoff: number;
+  env: { velocity: number; delay: number; attack: number; decay: number; sustain: number; release: number }[];
+}
+
+/** Turns a patch's raw values (by parameter id, as packages/patch parses them) into voice settings. */
+export function novaParams(v: Readonly<Record<string, number>>): NovaParams {
+  const g = (id: string): number => {
+    const x = v[id];
+    if (x === undefined) throw new Error(`patch value ${id} missing`);
+    return x;
+  };
+  const octave = 12 * (g("voice.octave") - 64);
+  const osc = (n: 1 | 2): OscParams => ({
+    wave: g(`osc${n}.wave`),
+    width: 0.05 + 0.9 * (g(`osc${n}.pulseWidth`) / 127),
+    morph: g(`osc${n}.waveInterpolate`) / 127,
+    transpose: octave + (g(`osc${n}.semitones`) - 64) + (g(`osc${n}.cents`) - 64) / 100,
+    level: C.level(g(`mixer.osc${n}`)),
+  });
+  const env = (n: 1 | 2 | 3) => ({
+    velocity: n === 3 ? 0 : C.bipolar(g(`env${n}.velocity`)),
+    delay: n === 3 ? C.envelopeSeconds(g("env3.delay")) : 0,
+    attack: C.envelopeSeconds(g(`env${n}.attack`)),
+    decay: C.envelopeSeconds(g(`env${n}.decay`)),
+    sustain: g(`env${n}.sustain`) / 127,
+    release: C.envelopeSeconds(g(`env${n}.release`)),
+  });
+  return {
+    polyphony: Math.min(2, g("voice.polyphony")) as 0 | 1 | 2,
+    portamento: C.portamentoSeconds(g("voice.portamento")),
+    preGlide: g("voice.preGlide") - 64,
+    osc: [osc(1), osc(2)],
+    ring: C.level(g("mixer.ringMod")),
+    noise: C.level(g("mixer.noise")),
+    preFx: C.dbGain(g("mixer.preFx")),
+    postFx: C.dbGain(g("mixer.postFx")),
+    routing: g("filter.routing"),
+    drive: g("filter.drive") / 127,
+    filterType: g("filter.type"),
+    cutoff: g("filter.frequency"),
+    tracking: g("filter.tracking") / 127,
+    q: C.resonanceQ(g("filter.resonance")),
+    env2ToCutoff: C.bipolar(g("filter.env2ToFrequency")),
+    env: [env(1), env(2), env(3)],
+  };
+}
+
+/** The guide's default values, by id: a patch for tests and the fallback when none is loaded. */
+export function defaultValues(): Record<string, number> {
+  return Object.fromEntries(PATCH_PARAMS.map((p) => [p.id, p.default]));
+}
+
+/** One oscillator sample. Wavetables (14–29) are placeholders until real tables exist (plan D-1). */
+export function oscSample(o: OscParams, phase: number, dt: number): number {
+  const w = o.wave;
+  if (w === 0) return sine(phase);
+  if (w === 1) return triangle(phase);
+  if (w === 2) return saw(phase, dt);
+  if (w >= 3 && w <= 11) return sawPulse(phase, dt, (12 - w) / 10);
+  if (w === 12) return sawPulse(phase, dt, o.width);
+  if (w === 13) return sawPulse(phase, dt, 0.5);
+  if (w === FIRST_WAVETABLE) return sine(phase);
+  // Placeholder for the other wavetables: interpolate sweeps from saw to square.
+  return (1 - o.morph) * saw(phase, dt) + o.morph * sawPulse(phase, dt, 0.5);
+}
+
+const FILTER_STAGES: readonly { mode: SvfMode; stages: 1 | 2 }[] = [
+  { mode: "low", stages: 1 }, { mode: "low", stages: 2 }, { mode: "band", stages: 1 },
+  { mode: "band", stages: 2 }, { mode: "high", stages: 1 }, { mode: "high", stages: 2 },
+];
+
+const midiHz = (note: number): number => 440 * 2 ** ((note - 69) / 12);
+
+export class Voice {
+  note = -1;
+  velocity = 0;
+  /** Frame the voice started, for stealing the oldest. */
+  started = 0;
+  private pitch = 0;
+  private glideFrom = 0;
+  private glideLeft = 0;
+  private glideTotal = 0;
+  private readonly phase = [0, 0];
+  private readonly env = [new Envelope(), new Envelope(), new Envelope()];
+  private readonly svf = [new Svf(), new Svf()];
+  private readonly noise = new Noise();
+
+  private readonly sampleRate: number;
+
+  constructor(sampleRate: number) { this.sampleRate = sampleRate; }
+
+  get active(): boolean { return this.env[0]!.stage !== "idle"; }
+  get releasing(): boolean { return this.env[0]!.stage === "release"; }
+  get level(): number { return this.env[0]!.value; }
+
+  /** Starts (or, with `legato`, moves) the voice to `note`. `from` is the pitch to glide from. */
+  start(p: NovaParams, note: number, velocity: number, frame: number, from: number | null, legato: boolean): void {
+    const sr = this.sampleRate;
+    if (!legato || !this.active) {
+      this.started = frame;
+      this.phase[0] = 0; this.phase[1] = 0;
+      for (const f of this.svf) f.reset();
+    }
+    this.note = note;
+    this.velocity = velocity;
+    const preGlide = p.preGlide !== 0 && p.portamento > 0 ? note + p.preGlide : null;
+    const start = from ?? preGlide;
+    if (start !== null && p.portamento > 0) {
+      this.glideFrom = start;
+      this.glideTotal = this.glideLeft = Math.max(1, Math.round(p.portamento * sr));
+    } else {
+      this.glideLeft = 0;
+    }
+    this.pitch = note;
+    p.env.forEach((e, i) => {
+      this.env[i]!.configure(e.delay, e.attack, e.decay, e.sustain, e.release, sr);
+      this.env[i]!.gate(Math.round(e.delay * sr), legato);
+    });
+  }
+
+  release(): void { for (const e of this.env) e.release(); }
+
+  /** Fast fade for stealing: a 2 ms release. */
+  kill(p: NovaParams): void {
+    const e = p.env[0]!;
+    this.env[0]!.configure(0, e.attack, e.decay, e.sustain, 0.002, this.sampleRate);
+    this.env[0]!.release();
+  }
+
+  /** Adds `n` frames (n ≤ BLOCK) of this voice into `out` from `offset`. */
+  render(p: NovaParams, out: Float32Array, offset: number, n: number): void {
+    const sr = this.sampleRate;
+    // Control rate, once per block: pitch with glide, filter coefficients.
+    let pitch = this.pitch;
+    if (this.glideLeft > 0) {
+      pitch = this.pitch + (this.glideFrom - this.pitch) * (this.glideLeft / this.glideTotal);
+      this.glideLeft = Math.max(0, this.glideLeft - n);
+    }
+    const env2 = this.env[1]!.value;
+    const vel = this.velocity / 127;
+    const velScale = (amount: number): number => (amount >= 0 ? 1 - amount * (1 - vel) : 1 + amount * vel);
+    const cutoffNote = 12 * Math.log2(C.filterHz(p.cutoff) / midiHz(60)) + 60
+      + (pitch - 60) * p.tracking + env2 * p.env2ToCutoff * ENV2_RANGE * velScale(p.env[1]!.velocity);
+    const fs = FILTER_STAGES[p.filterType] ?? FILTER_STAGES[1]!;
+    for (const f of this.svf) f.set(midiHz(cutoffNote), fs.stages === 2 ? Math.sqrt(p.q) : p.q, sr);
+    const dt = [midiHz(pitch + p.osc[0].transpose) / sr, midiHz(pitch + p.osc[1].transpose) / sr];
+    const amp = VOICE_GAIN * velScale(p.env[0]!.velocity) * p.postFx;
+    const driveGain = 1 + p.drive * 7;
+
+    for (let i = 0; i < n; i++) {
+      const e1 = this.env[0]!.next();
+      this.env[1]!.next();
+      this.env[2]!.next();
+      const s1 = oscSample(p.osc[0], this.phase[0]!, dt[0]!);
+      const s2 = oscSample(p.osc[1], this.phase[1]!, dt[1]!);
+      for (let k = 0; k < 2; k++) {
+        let ph = this.phase[k]! + dt[k]!;
+        if (ph >= 1) ph -= 1;
+        this.phase[k] = ph;
+      }
+      const a = s1 * p.osc[0].level, b = s2 * p.osc[1].level;
+      const extra = s1 * s2 * p.ring + this.noise.next() * p.noise;
+      // Routing (guide): 0 everything through the filter; 1 osc 1 bypasses; 2 osc 1 + 2 bypass.
+      const filtered = p.routing === 0 ? a + b + extra : p.routing === 1 ? b + extra : extra;
+      const bypass = p.routing === 0 ? 0 : p.routing === 1 ? a : a + b;
+      let x = filtered * p.preFx;
+      if (p.drive > 0) x = Math.tanh(x * driveGain) / Math.sqrt(driveGain);
+      let y = this.svf[0]!.process(x, fs.mode);
+      if (fs.stages === 2) y = this.svf[1]!.process(y, fs.mode);
+      out[offset + i]! += (y + bypass * p.preFx) * e1 * amp;
+    }
+  }
+}

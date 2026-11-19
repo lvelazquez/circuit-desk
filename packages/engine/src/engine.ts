@@ -7,6 +7,7 @@ import type { TimedMessage } from "@circuit-desk/playback";
 import { Sampler, type FallbackVoice, type SampleLoader } from "./sampler.ts";
 import { STAND_IN_PATCHES, Synth } from "./synth.ts";
 import type { Instrument } from "./types.ts";
+import { NovaInstrument, loadNovaWorklet } from "./nova/instrument.ts";
 
 const DRUM_FALLBACK: readonly FallbackVoice[] = ["kick", "snare", "hat", "perc"];
 /** Headroom so eight tracks summed rarely reach the limiter. */
@@ -46,6 +47,26 @@ export class PreviewEngine {
       sampler.setSample(drumSamples[d] ?? 0);
       await sampler.load(flips[d] ?? [], loader);
     }));
+  }
+
+  /**
+   * Plays Synth 1 and 2 with the Nova voice and the project's own patches (340 B each; null keeps
+   * the stand-in). `moduleUrl` is the bundled nova worklet. Returns the patch names now playing.
+   */
+  async useNova(moduleUrl: string, patches: readonly (Uint8Array | null)[]): Promise<string[]> {
+    await loadNovaWorklet(this.ctx, moduleUrl);
+    const names: string[] = [];
+    for (const t of [0, 1]) {
+      const strip = this.strips[t]!, patch = patches[t];
+      if (!patch) continue;
+      if (strip.instrument instanceof NovaInstrument) strip.instrument.setPatch(patch);
+      else {
+        strip.instrument.dispose();
+        strip.instrument = new NovaInstrument(this.ctx, strip.gain, patch);
+      }
+      names.push((strip.instrument as NovaInstrument).name);
+    }
+    return names;
   }
 
   /** Plays scheduler messages. Messages without a track (clock, start, stop) are ignored here. */

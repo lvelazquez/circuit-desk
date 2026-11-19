@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Arrangement } from "@circuit-desk/export";
 import { PreviewEngine } from "@circuit-desk/engine";
 import { playheads, Schedule, type TimedMessage } from "@circuit-desk/playback";
-import { audioContext, packLoader } from "./audio.ts";
+import { audioContext, novaRender, packLoader } from "./audio.ts";
 import { call } from "./desk.ts";
 
 /** The built-in preview engine's entry in the output list. */
@@ -63,6 +63,9 @@ export function usePlayer(projectId: string | null, version: number) {
     const pack = await call("packSamples", projectId);
     const flips = a.tracks.slice(4).map((t) => [...new Set(t.notes.flatMap((n) => (n.sample !== undefined ? [n.sample] : [])))]);
     await engine.current.loadDrums(pack.drums, flips, packLoader(projectId));
+    // Synth 1/2 play their own patches through the Nova voice (re-read each time: edits may change them).
+    const nova = await novaRender(projectId);
+    await engine.current.useNova(nova.moduleUrl, nova.patches);
   }, [preview, projectId]);
 
   const stop = useCallback((): void => {

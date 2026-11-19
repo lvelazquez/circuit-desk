@@ -332,6 +332,16 @@ export class ProjectService {
     return { pack: dirname(pcm), samples, drums };
   }
 
+  /**
+   * The project's own Synth 1 and Synth 2 patches (340 B each at 0x26D14, Novation's "Synth Patch
+   * Format"), as edited in this session. Read-only: arrays of byte values for the preview engine.
+   */
+  synthPatches(id: string): { synth1: number[]; synth2: number[] } {
+    const b = this.get(id).project.bytes;
+    const at = (s: number): number[] => Array.from(b.subarray(N.PATCH0 + s * N.PATCH_SIZE, N.PATCH0 + (s + 1) * N.PATCH_SIZE));
+    return { synth1: at(0), synth2: at(1) };
+  }
+
   /** The WAV file of sample `index` (0–63) of the project's pack. Read-only. */
   sampleData(id: string, index: number): Uint8Array {
     if (!Number.isInteger(index) || index < 0 || index > 63) throw new ServiceError(`sample must be 0–63, got ${index}`);

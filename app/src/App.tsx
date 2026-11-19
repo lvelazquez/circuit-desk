@@ -13,6 +13,7 @@ import { PackView } from "./PackView.tsx";
 import { ScenesView } from "./ScenesView.tsx";
 import { DRUM_NAMES, isDrum, isNoteTrack, TRACK_NAMES } from "./tracks.ts";
 import { encodeWav, renderOffline } from "@circuit-desk/engine";
+import { novaRender } from "./audio.ts";
 import { usePlayer } from "./usePlayer.ts";
 
 type View = "circuit" | "editor" | "scenes" | "pack";
@@ -132,10 +133,10 @@ export function App() {
       setStatus({ text: "Rendering the preview…" });
       const a = await call("arrangement", projectId, { source: "current" });
       const pack = await call("packSamples", projectId);
-      const buf = await renderOffline(a, pack.drums, (i) => call("sampleData", projectId, i));
+      const buf = await renderOffline(a, pack.drums, (i) => call("sampleData", projectId, i), await novaRender(projectId));
       const wav = encodeWav(Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c)), buf.sampleRate);
       const { path } = await call("saveAudio", projectId, wav);
-      setStatus({ text: `Exported ${path} (built-in preview: drums from the pack, synths are stand-ins)` });
+      setStatus({ text: `Exported ${path} (built-in preview: drums from the pack; Synth 1/2 play their own patches on a first Nova voice, MIDI 1/2 are stand-ins)` });
       void bridge().reveal(path);
     } catch (e) { fail(e); }
   }, [projectId]);

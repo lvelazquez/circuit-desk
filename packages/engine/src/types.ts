@@ -23,5 +23,5 @@ export interface Instrument {
   dispose(): void;
 }
 
-/** How a track's instrument is chosen; a later engine can add "nova" or "circuit-drum". */
-export type InstrumentKind = "synth" | "sampler";
+/** How a track's instrument is chosen; a later engine can add "circuit-drum". */
+export type InstrumentKind = "synth" | "sampler" | "nova";

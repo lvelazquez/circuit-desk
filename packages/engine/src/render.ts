@@ -11,12 +11,18 @@ export const RENDER_TAIL = 1.5;
 /** Longest render, seconds: an arrangement is never longer than 16 scenes of long chains. */
 export const RENDER_MAX = 20 * 60;
 
-export async function renderOffline(a: Arrangement, drums: readonly number[], fetchSample: (index: number) => Promise<Uint8Array>): Promise<AudioBuffer> {
+/** Synth 1/2 through the Nova voice: the bundled worklet url and the project's two patches. */
+export interface NovaRender { moduleUrl: string; patches: readonly (Uint8Array | null)[] }
+
+export async function renderOffline(
+  a: Arrangement, drums: readonly number[], fetchSample: (index: number) => Promise<Uint8Array>, nova?: NovaRender,
+): Promise<AudioBuffer> {
   const seconds = Math.min(RENDER_MAX, (a.length / a.ppq) * (60 / a.bpm) + RENDER_TAIL);
   const ctx = new OfflineAudioContext(2, Math.ceil(seconds * RENDER_RATE), RENDER_RATE);
   const engine = new PreviewEngine(ctx, { clock: () => ({ perfMs: 0, audioS: 0 }) });
   const flips = a.tracks.slice(4).map((t) => [...new Set(t.notes.flatMap((n) => (n.sample !== undefined ? [n.sample] : [])))]);
   await engine.loadDrums(drums, flips, wavLoader(ctx, fetchSample));
+  if (nova) await engine.useNova(nova.moduleUrl, nova.patches);
   const s = new Schedule(a, { loop: false, lookahead: Number.POSITIVE_INFINITY });
   s.play(0);
   engine.handle(s.pump(0));
