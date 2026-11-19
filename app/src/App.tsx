@@ -261,8 +261,8 @@ export function App() {
         </div>
         <label className="visually-hidden" htmlFor="firmware">Firmware on your Circuit Tracks</label>
         <select id="firmware" value={firmware?.current.id ?? ""} disabled={!firmware} onChange={(e) => chooseFirmware(e.target.value)}
-          title={firmware?.current.description}>
-          {firmware?.available.map((f) => <option key={f.id} value={f.id}>Firmware: {f.name}</option>)}
+          title={firmware ? `Firmware on your Circuit Tracks: ${firmware.current.name} ${firmware.current.versions}. ${firmware.current.description}` : undefined}>
+          {firmware?.available.map((f) => <option key={f.id} value={f.id}>{f.short}</option>)}
         </select>
         <button type="button" className="btn" onClick={() => void pick()}>Open…</button>
         <button type="button" className="btn" disabled={!summary?.edits} onClick={() => void undo()}>Undo</button>
