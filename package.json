@@ -16,7 +16,8 @@
     "mcp:smoke": "node tools/mcp-smoke.ts",
     "app:build": "vite build --config app/vite.config.ts",
     "app": "npm run app:build && electron app/electron/main.ts",
-    "app:smoke": "npm run app:build && electron app/scripts/smoke.ts"
+    "app:smoke": "npm run app:build && electron app/scripts/smoke.ts",
+    "app:midi-probe": "npm run app:build && electron app/scripts/midi-probe.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.6",

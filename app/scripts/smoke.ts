@@ -17,6 +17,7 @@ const start = blankProject("Smoke");
 for (let k = 0; k < 24; k++) start[notePatternOffset(0, 0) + LANE0 + k] = k * 5;
 writeFileSync(file, start);
 process.env["CIRCUIT_DESK_HOME"] = home;
+process.env["CIRCUIT_DESK_USER_DATA"] = path.join(home, "app-data");
 process.env["CIRCUIT_DESK_OPEN"] = file;
 const mainEntry: string = "../electron/main.ts";
 void import(mainEntry);
@@ -54,7 +55,7 @@ async function run(): Promise<void> {
   await wc.debugger.sendCommand("Page.addScriptToEvaluateOnNewDocument", { source: `
     window.__sent = [];
     const out = { id: "fake", name: "Smoke output", send: (bytes, at) => window.__sent.push({ bytes: [...bytes], at }) };
-    navigator.requestMIDIAccess = async () => ({ outputs: new Map([["fake", out]]), onstatechange: null });` });
+    navigator.requestMIDIAccess = async () => ({ outputs: new Map([["fake", out]]), onstatechange: null, sysexEnabled: false });` });
   wc.reload();
   await new Promise<void>((r) => wc.once("did-finish-load", () => r()));
 

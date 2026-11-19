@@ -33,6 +33,7 @@ export function usePlayer(projectId: string | null, version: number) {
   useEffect(() => {
     if (!navigator.requestMIDIAccess) { setError("Web MIDI is not available"); return; }
     navigator.requestMIDIAccess({ sysex: false }).then((a) => {
+      if (a.sysexEnabled) { setError("MIDI was opened with SysEx; playback is off to stay safe"); return; }
       const list = (): void => setPorts([...a.outputs.values()].map((o) => ({ id: o.id, name: o.name ?? o.id })));
       a.onstatechange = list;
       setAccess(a); list();
@@ -40,7 +41,11 @@ export function usePlayer(projectId: string | null, version: number) {
   }, []);
 
   const output = useCallback((): MIDIOutput | null => (access && portId ? access.outputs.get(portId) ?? null : null), [access, portId]);
-  const send = useCallback((msgs: TimedMessage[]): void => { const o = output(); if (o) for (const m of msgs) o.send(m.bytes, m.at); }, [output]);
+  /** Sends notes, CC and clock only: a SysEx start byte (0xF0) never leaves the app. */
+  const send = useCallback((msgs: TimedMessage[]): void => {
+    const o = output();
+    if (o) for (const m of msgs) if (m.bytes[0] !== 0xf0 && m.bytes[0] !== 0xf7) o.send(m.bytes, m.at);
+  }, [output]);
 
   const stop = useCallback((): void => {
     if (sched.current) send(sched.current.stop(performance.now()));

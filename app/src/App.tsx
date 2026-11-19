@@ -234,6 +234,9 @@ export function App() {
       <footer className="statusbar">
         <span role="status" aria-live="polite" className={status.error ? "error" : undefined}>{status.text}</span>
         {player.error && <span role="alert" className="error">{player.error}</span>}
+        {!player.error && player.ports.length === 0 && (
+          <span>No MIDI outputs: connect the Circuit, or turn on the IAC Driver in Audio MIDI Setup (Window › Show MIDI Studio).</span>
+        )}
         <span>{player.playing ? "Playing the current chains" : ""}</span>
       </footer>
     </div>

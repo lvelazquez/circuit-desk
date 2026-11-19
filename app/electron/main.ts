@@ -55,12 +55,16 @@ function bridge(): void {
 }
 
 /**
- * Web MIDI for playback is the one permission the window gets, and only without SysEx: the app
- * sends notes and clock, never messages that could change a device's settings. All else is refused.
+ * Web MIDI for playback is the one permission the window gets; everything else is refused.
+ * Chromium asks for "midiSysex" for any Web MIDI use, even when the page asks for no SysEx, so both
+ * names are allowed for the app's own pages. The no-SysEx rule is kept in the window instead: the
+ * player requests access with sysex: false (the browser then refuses to send SysEx) and drops any
+ * SysEx byte before sending (usePlayer.ts).
  */
+const MIDI_PERMISSIONS: ReadonlySet<string> = new Set(["midi", "midiSysex"]);
 function permissions(): void {
-  session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => permission === "midi" && isAppUrl(origin));
-  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => callback(permission === "midi" && isAppUrl(details.requestingUrl)));
+  session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => MIDI_PERMISSIONS.has(permission) && isAppUrl(origin));
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => callback(MIDI_PERMISSIONS.has(permission) && isAppUrl(details.requestingUrl)));
 }
 
 function send(command: MenuCommand): void {
@@ -93,6 +97,12 @@ function createWindow(): BrowserWindow {
 }
 
 app.setName("Circuit Desk");
+// Tests and probes run with their own app data, so they never collide with the copy you have open.
+const userData = process.env["CIRCUIT_DESK_USER_DATA"];
+if (userData) app.setPath("userData", userData);
+// One app at a time: a second launch brings the open window forward instead (they would share the MCP socket).
+if (!app.requestSingleInstanceLock()) app.quit();
+app.on("second-instance", () => { const w = BrowserWindow.getAllWindows()[0]; if (w) { if (w.isMinimized()) w.restore(); w.focus(); } });
 void app.whenReady().then(() => {
   serveDist();
   permissions();
