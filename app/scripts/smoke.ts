@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { SocketClient } from "@circuit-desk/core-service";
 import { encodeWav } from "@circuit-desk/engine";
-import { LANE0, notePatternOffset, openProject, readNotePattern } from "@circuit-desk/ncs";
+import { DLANE0, LANE0, drumPatternOffset, notePatternOffset, openProject, readNotePattern } from "@circuit-desk/ncs";
 import { blankProject } from "../../packages/ncs/src/testing.ts";
 import { PATCH_SIZE, initPatchBytes } from "@circuit-desk/patch";
 
@@ -17,6 +17,8 @@ mkdirSync(path.dirname(file), { recursive: true });
 const start = blankProject("Smoke");
 // Synth 1 pattern 1, lane 1 (macro 1): a ramp over steps 1–4, so the editor has automation to show.
 for (let k = 0; k < 24; k++) start[notePatternOffset(0, 0) + LANE0 + k] = k * 5;
+// Drum 1 pattern 1, lane 8 (pan): hard left from step 1, so playing to a Circuit sends CC 77 on channel 10.
+start[drumPatternOffset(0, 0) + DLANE0 + 192 * 7] = 0;
 writeFileSync(file, start);
 // The pack's sample 0: a 60 ms 200 Hz burst, so the rendered preview can be checked for it.
 mkdirSync(path.join(path.dirname(path.dirname(file)), "PCM"));
@@ -225,6 +227,10 @@ async function run(): Promise<void> {
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Play')).click()`);
   check("Play sends the pattern's notes with timestamps", await until(`window.__sent.some(m => m.bytes[0] === 0x90 && m.bytes[1] === 60 && m.at > 0)`), JSON.stringify(await js(`window.__sent.slice(0, 3)`)));
   check("the playhead shows on the grid", await until(`!!document.querySelector('.pad[data-playing=true]')`));
+  check("Synth 1's macro lane goes to the Circuit as CC 80 on channel 1, with timestamps", await until(`window.__sent.some(m => m.bytes[0] === 0xb0 && m.bytes[1] === 80 && m.at > 0)`),
+    JSON.stringify(await js(`window.__sent.filter(m => (m.bytes[0] & 0xf0) === 0xb0).slice(0, 4)`)));
+  check("Drum 1's pan lane goes as CC 77 on channel 10", await until(`window.__sent.some(m => m.bytes[0] === 0xb9 && m.bytes[1] === 77 && m.bytes[2] === 0)`));
+  check("no empty message reaches the MIDI output", await js<boolean>(`window.__sent.every(m => m.bytes.length > 0)`));
   // Cells read like the device: velocity bar on lit steps, C keys marked, used pitches tinted.
   const bar = await js<string>(`getComputedStyle(document.querySelector('.grid .pad[data-on=true]'), '::after').content`);
   check("a lit step shows its velocity as a bar", bar !== "none" && bar !== "normal" && bar !== "", bar);

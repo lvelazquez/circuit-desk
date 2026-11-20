@@ -205,7 +205,7 @@ export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps, play
   );
 }
 
-/** Read-only automation lanes, aligned with the piano roll: 6 points a step, 0–127, gaps where none. */
+/** The pattern's automation lanes, aligned with the piano roll: 6 points a step, 0–127, gaps where none. They play (not editable yet). */
 function AutomationLanes({ projectId, version, track, pattern }: { projectId: string | null; version: number; track: TrackName; pattern: number }) {
   const [auto, setAuto] = useState<Automation | null>(null);
   useEffect(() => {
@@ -217,7 +217,8 @@ function AutomationLanes({ projectId, version, track, pattern }: { projectId: st
   if (!auto) return null;
   if (!auto.lanes.length) return <p className="lane-note">No automation in this pattern.</p>;
   return (
-    <div className="automation" aria-label={`Automation, ${auto.lanes.length} of ${auto.laneCount} lanes in use (read-only; ${auto.evidence})`} role="group">
+    <div className="automation" aria-label={`Automation, ${auto.lanes.length} of ${auto.laneCount} lanes in use; they play in the preview and go to a Circuit as CC (not editable yet; ${auto.evidence})`} role="group">
+      <p className="lane-note">These lanes play: in the built-in preview, and as CC when playing to a Circuit. A value holds until the next point; editing comes later.</p>
       {auto.lanes.map((l) => {
         const vals = l.points.filter((v): v is number => v !== null);
         const steps = l.points.flatMap((v, k) => (v === null ? [] : [Math.floor(k / 6) + 1]));

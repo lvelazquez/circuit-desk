@@ -31,4 +31,4 @@ export function laneInfo(kind: LaneKind, lane: number): LaneInfo {
   return { lane, name: MIX[i - 8] ?? `Lane ${lane}` };
 }
 
-export const LANE_EVIDENCE = "firmware automation table 0x08059080, traced upstream (NOTAS:1178, :1682); not checked on a device";
+export const LANE_EVIDENCE = "firmware automation table 0x08059080, traced upstream (NOTAS:1178, :1682); the CC each lane is sent as comes from the Programmer's Reference v3; not checked on a device";

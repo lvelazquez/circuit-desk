@@ -30,6 +30,7 @@ class NovaProcessor extends AudioWorkletProcessor {
   private receive(m: NovaMessage): void {
     if (m.type === "values") { this.synth.setValues(m.values); return; }
     if (m.type === "bpm") { this.synth.setBpm(m.bpm); return; }
+    if (m.type === "macro") { this.synth.schedule({ frame: Math.max(currentFrame, Math.round(m.time * sampleRate)), type: "macro", index: m.index, value: m.value }); return; }
     if (m.type === "fx") { this.synth.fx.enabled = m.on; return; }
     const frame = Math.max(currentFrame, Math.round(m.time * sampleRate));
     if (m.type === "on") this.synth.schedule({ frame, type: "on", note: m.note, velocity: m.velocity });
@@ -62,6 +63,8 @@ class MixerProcessor extends AudioWorkletProcessor {
       const m = e.data;
       if (m.type === "sound") this.mixer.set(m.sound, m.bpm);
       else if (m.type === "fx") this.mixer.enabled = m.on;
+      else if (m.type === "clear") this.mixer.clear();
+      else if (m.type === "auto") this.mixer.automate(Math.max(currentFrame, Math.round(m.time * sampleRate)), m.track, m.target, m.value);
       else this.mixer.trigger(Math.max(currentFrame, Math.round(m.time * sampleRate)), m.drum);
     };
   }

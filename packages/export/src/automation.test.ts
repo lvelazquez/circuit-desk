@@ -29,7 +29,7 @@ describe("automation", () => {
     expect(a.tracks[2]!.ccs).toEqual([{ tick: 0, cc: 1, value: 10 }, { tick: 120 + 60, cc: 1, value: 90 }, { tick: 240, cc: 74, value: 64 }]);
     expect(a.tracks[0]!.ccs).toEqual([]);
     expect(a.warnings.join("\n")).toMatch(/default MIDI template/);
-    expect(a.warnings.join("\n")).toMatch(/Synth and drum automation is not exported/);
+    expect(a.warnings.join("\n")).toMatch(/Synth and drum automation plays in the app but is not exported/);
     const r = readSmf(writeSmf(a));
     expect(r.tracks.map((t) => t.name)).toContain("MIDI 1");
     expect(r.ccs).toEqual([

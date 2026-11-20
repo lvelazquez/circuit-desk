@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as N from "@circuit-desk/ncs";
 import { blankProject } from "../../ncs/src/testing.ts";
-import { arrange, drumPatternNotes, notePatternNotes, removeOverlaps } from "./arrange.ts";
+import { arrange, drumPatternNotes, notePatternNotes, patternAutomation, removeOverlaps } from "./arrange.ts";
 import { readSmf } from "./smf-read.ts";
 import { vlq, writeSmf } from "./smf.ts";
 
@@ -164,5 +164,49 @@ describe("playing one scene or one pattern", () => {
     expect(() => arrange(p, { scene: 0 })).toThrow(/scene must be 1–16/);
     expect(() => arrange(p, { pattern: 9 })).toThrow(/pattern must be 1–8/);
     expect(() => arrange(p, { scene: 1, pattern: 1 })).toThrow(/not both/);
+  });
+});
+
+describe("automation lanes", () => {
+  const notePoint = (b: Uint8Array, t: number, i: number, lane: number, step: number, micro: number, v: number): void => {
+    b[N.notePatternOffset(t, i) + N.LANE0 + 192 * lane + step * 6 + micro] = v;
+  };
+  const drumPoint = (b: Uint8Array, d: number, i: number, lane: number, step: number, micro: number, v: number): void => {
+    b[N.drumPatternOffset(d, i) + N.DLANE0 + 192 * lane + step * 6 + micro] = v;
+  };
+
+  it("keeps only changes, at step and micro-step ticks, inside the pattern's steps", () => {
+    const b = blankProject();
+    notePoint(b, 0, 0, 2, 0, 0, 10); notePoint(b, 0, 0, 2, 0, 3, 10); notePoint(b, 0, 0, 2, 1, 3, 20);
+    notePoint(b, 0, 0, 2, 20, 0, 99);                       // step 21: outside steps 1–16
+    const auto = patternAutomation(N.readNotePattern(N.openProject(b), 0, 0));
+    expect(auto).toEqual([{ tick: 0, lane: 2, value: 10 }, { tick: 120 + 60, lane: 2, value: 20 }]);
+  });
+
+  it("maps every lane to its target and the Circuit's CC", () => {
+    const b = blankProject();
+    notePoint(b, 0, 0, 2, 0, 0, 50);    // Synth 1 macro 3
+    notePoint(b, 1, 0, 11, 0, 0, 30);   // Synth 2 pan
+    notePoint(b, 2, 0, 8, 0, 0, 90);    // MIDI 1 level: no CC
+    drumPoint(b, 1, 0, 0, 0, 0, 70);    // Drum 2 pitch
+    drumPoint(b, 3, 0, 5, 0, 0, 40);    // Drum 4 reverb send
+    const a = arrange(N.openProject(b), { source: "current" });
+    expect(a.tracks[0]!.auto).toEqual([{ tick: 0, target: "macro", index: 2, value: 50, cc: { channel: 0, cc: 82 } }]);
+    expect(a.tracks[1]!.auto).toEqual([{ tick: 0, target: "pan", value: 30, cc: { channel: 15, cc: 118 } }]);
+    expect(a.tracks[2]!.auto).toEqual([{ tick: 0, target: "level", value: 90 }]);
+    expect(a.tracks[5]!.auto).toEqual([{ tick: 0, target: "drumPitch", value: 70, cc: { channel: 9, cc: 34 } }]);
+    expect(a.tracks[7]!.auto).toEqual([{ tick: 0, target: "reverb", value: 40, cc: { channel: 15, cc: 110 } }]);
+    expect(a.warnings.join("\n")).toMatch(/plays in the app but is not exported/);
+    // The Live target gets the changes for the preview, but no Circuit CCs.
+    expect(arrange(N.openProject(b), { source: "current", automationCcs: false }).tracks[0]!.auto[0]!.cc).toBeUndefined();
+  });
+
+  it("places each pattern's automation where the pattern plays in a chain", () => {
+    const b = blankProject();
+    drumPoint(b, 0, 0, 7, 0, 0, 10);    // Drum 1 pattern 1: pan
+    drumPoint(b, 0, 1, 7, 0, 0, 120);   // Drum 1 pattern 2: pan
+    setChain(b, 5, 0, 1);               // Drum 1 chain: patterns 1–2
+    const a = arrange(N.openProject(b), { source: "current" });
+    expect(a.tracks[4]!.auto.map((e) => [e.tick, e.value])).toEqual([[0, 10], [16 * 120, 120]]);
   });
 });

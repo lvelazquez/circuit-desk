@@ -49,6 +49,9 @@ export class NovaInstrument implements Instrument {
 
   silence(time: number): void { this.post({ type: "silence", time }); }
 
+  /** A macro knob moved by automation (index 0–7, value 0–127) at `time`. */
+  automate(time: number, index: number, value: number): void { this.post({ type: "macro", time, index, value }); }
+
   /** Tempo, for the patch's synced chorus rate. */
   setBpm(bpm: number): void { this.post({ type: "bpm", bpm }); }
 

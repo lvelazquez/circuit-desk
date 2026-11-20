@@ -45,6 +45,20 @@ export interface MidiCc {
   value: number;
 }
 
+/** What an automation lane drives (packages/ncs lanes.ts). */
+export type AutoTarget = "macro" | "level" | "pan" | "reverb" | "delay" | "drumPitch" | "drumDecay" | "drumDistortion" | "drumEq";
+
+/** One automation change: a lane's new value at `tick`, and the CC that carries it to a Circuit. */
+export interface AutoEvent {
+  tick: number;
+  target: AutoTarget;
+  /** The macro knob (0–7) for `macro`. */
+  index?: number;
+  value: number;
+  /** Present for the Circuit target where the Programmer's Reference documents a CC. Channel 0-based. */
+  cc?: { channel: number; cc: number };
+}
+
 export interface PatternClip {
   /** Length in ticks, from the pattern's first step to its last. */
   length: number;
@@ -63,6 +77,8 @@ export interface ArrangedTrack {
   plays: PatternPlay[];
   notes: MidiNote[];
   ccs: MidiCc[];
+  /** Synth and drum lanes, and every track's level, pan and send lanes (MIDI 1/2 knob lanes are in `ccs`). */
+  auto: AutoEvent[];
 }
 
 export interface ArrangedScene {
@@ -100,6 +116,8 @@ export interface ArrangeOptions {
    * device's default template. null: leave automation out.
    */
   templateCcs?: readonly number[] | null;
+  /** Attach the Circuit's CC to each automation change (default true; false for the Live target). */
+  automationCcs?: boolean;
 }
 
 /** The knob lanes of a MIDI-track pattern as CC changes, from its first step; a value is sent only when it changes. */
@@ -119,6 +137,62 @@ export function patternCcs(p: N.NotePattern, ccs: readonly number[]): MidiCc[] {
     }
   });
   return out.sort((a, b) => a.tick - b.tick || a.cc - b.cc);
+}
+
+/** Every lane's changes in one pattern, from its first step: a point is kept only when its value changes. */
+export function patternAutomation(p: N.NotePattern | N.DrumPattern): { tick: number; lane: number; value: number }[] {
+  const step = stepTicks(p.settings), { first, last } = span(p.settings), out: { tick: number; lane: number; value: number }[] = [];
+  p.lanes.forEach((points, lane) => {
+    let prev = -1;
+    for (let s = first; s <= last; s++) {
+      for (let u = 0; u < 6; u++) {
+        const v = points[s * 6 + u];
+        if (v === undefined || v === 0xff || v > 127 || v === prev) continue;
+        out.push({ tick: (s - first) * step + Math.round((u * step) / 6), lane, value: v });
+        prev = v;
+      }
+    }
+  });
+  return out.sort((a, b) => a.tick - b.tick || a.lane - b.lane);
+}
+
+const MIX_TARGETS: readonly AutoTarget[] = ["level", "reverb", "delay", "pan"];
+const DRUM_KNOBS: readonly AutoTarget[] = ["drumPitch", "drumDecay", "drumDistortion", "drumEq"];
+
+/** What lane `lane` (0-based) of track `t` (0–7) drives, or null for MIDI 1/2's knob lanes (sent as `ccs`). */
+export function laneTarget(t: number, lane: number): { target: AutoTarget; index?: number } | null {
+  if (t >= 4) return lane < 4 ? { target: DRUM_KNOBS[lane]! } : MIX_TARGETS[lane - 4] ? { target: MIX_TARGETS[lane - 4]! } : null;
+  if (lane < 8) return t < 2 ? { target: "macro", index: lane } : null;
+  return MIX_TARGETS[lane - 8] ? { target: MIX_TARGETS[lane - 8]! } : null;
+}
+
+/** The Circuit's project channel (0-based: 16), where levels, pans and sends are received. */
+export const PROJECT_CHANNEL = 15;
+/** Drum knob CCs on the drum channel, for drums 1–4 (Programmer's Reference v3, "Drum Control"). */
+const DRUM_CCS: Readonly<Record<string, readonly number[]>> = {
+  level: [12, 23, 45, 53], pan: [77, 78, 79, 80],
+  drumPitch: [14, 34, 46, 55], drumDecay: [15, 40, 47, 57], drumDistortion: [16, 42, 48, 61], drumEq: [17, 43, 49, 76],
+};
+/** Reverb and delay send CCs on the project channel: Synth 1, Synth 2, Drum 1–4 ("Project Control"). */
+const REVERB_SEND_CCS = [88, 89, 90, 106, 109, 110] as const;
+const DELAY_SEND_CCS = [111, 112, 113, 114, 115, 116] as const;
+
+/** The CC that carries a lane change to a Circuit, or undefined where the reference documents none (MIDI 1/2 mix). */
+export function deviceCc(t: number, target: AutoTarget, index: number | undefined, channels: readonly number[]): { channel: number; cc: number } | undefined {
+  const send = t < 2 ? t : t >= 4 ? t - 2 : -1;
+  if (target === "reverb") return send >= 0 ? { channel: PROJECT_CHANNEL, cc: REVERB_SEND_CCS[send]! } : undefined;
+  if (target === "delay") return send >= 0 ? { channel: PROJECT_CHANNEL, cc: DELAY_SEND_CCS[send]! } : undefined;
+  if (t < 2) {
+    if (target === "macro") return { channel: channels[t] ?? t, cc: 80 + (index ?? 0) };
+    if (target === "level") return { channel: PROJECT_CHANNEL, cc: t === 0 ? 12 : 14 };
+    if (target === "pan") return { channel: PROJECT_CHANNEL, cc: 117 + t };
+    return undefined;
+  }
+  if (t >= 4) {
+    const cc = DRUM_CCS[target]?.[t - 4];
+    return cc === undefined ? undefined : { channel: channels[t] ?? 9, cc };
+  }
+  return undefined;
 }
 
 function stepTicks(s: N.PatternSettings): number {
@@ -242,9 +316,15 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
   const templateCcs = opts.templateCcs === undefined ? N.DEFAULT_TEMPLATE_CCS : opts.templateCcs;
   const patternCc = patterns.map((list, t) => list.map((p) => (t === 2 || t === 3) && templateCcs ? patternCcs(p as N.NotePattern, templateCcs) : []));
   if (templateCcs && patternCc.some((l) => l.some((c) => c.length))) warnings.push("MIDI 1/2 automation is sent as CC assuming the default MIDI template's knob CCs");
-  const lanesNotSent = patterns.slice(0, 2).some((list) => list.some((p) => p.lanes.some((l) => l.some((v) => v !== 0xff))))
-    || patterns.slice(4).some((list) => list.some((p) => p.lanes.some((l) => l.some((v) => v !== 0xff))));
-  if (lanesNotSent) warnings.push("Synth and drum automation is not exported (it drives the Circuit's own sound)");
+  const withCcs = opts.automationCcs ?? true;
+  const patternAuto: AutoEvent[][][] = patterns.map((list, t) => list.map((p) => patternAutomation(p).flatMap((e) => {
+    const what = laneTarget(t, e.lane);
+    if (!what) return [];
+    const cc = withCcs ? deviceCc(t, what.target, what.index, channels) : undefined;
+    return [{ tick: e.tick, ...what, value: e.value, ...(cc ? { cc } : {}) }];
+  })));
+  if (patternAuto.some((list, t) => t !== 2 && t !== 3 && list.some((a) => a.length)))
+    warnings.push("Synth and drum automation plays in the app but is not exported to MIDI files or Live sets yet");
 
   const directions = new Set<string>();
   const tracks: ArrangedTrack[] = TRACK_NAMES.map((name, t) => ({
@@ -254,6 +334,7 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
     plays: [],
     notes: [],
     ccs: [],
+    auto: [],
   }));
   const arrangedScenes: ArrangedScene[] = [];
   let tick = 0;
@@ -278,6 +359,7 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
           tracks[t]!.plays.push({ pattern: i, tick: tick + at, length: len, stepTicks: stepTicks(st), firstStep: span(st).first + 1 });
           for (const n of patternNotes[t]![i]!) if (n.tick < len) tracks[t]!.notes.push({ ...n, tick: tick + at + n.tick });
           for (const c of patternCc[t]![i]!) if (c.tick < len) tracks[t]!.ccs.push({ ...c, tick: tick + at + c.tick });
+          for (const e of patternAuto[t]![i]!) if (e.tick < len) tracks[t]!.auto.push({ ...e, tick: tick + at + e.tick });
           at += len; k++;
         }
       });

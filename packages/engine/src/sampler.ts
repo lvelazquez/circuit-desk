@@ -12,6 +12,16 @@ export type FallbackVoice = "kick" | "snare" | "hat" | "perc";
 
 const FADE = 0.004;
 
+/** A knob value that changes at audio times (automation). */
+export interface KnobChange { time: number; value: number }
+
+/** The value in force at `time`: the last change at or before it, else `base`. `changes` is time-ordered. */
+export function knobAt(changes: readonly KnobChange[], time: number, base: number): number {
+  let v = base;
+  for (const c of changes) { if (c.time > time) break; v = c.value; }
+  return v;
+}
+
 export class Sampler implements Instrument {
   private readonly ctx: BaseAudioContext;
   private readonly out: AudioNode;
@@ -22,6 +32,8 @@ export class Sampler implements Instrument {
   /** The drum's pitch and decay knobs (project drum record); off plays samples untouched. */
   private knobs = { pitch: 64, decay: 127 };
   private knobsOn = true;
+  /** Automation of pitch and decay, time-ordered; spent changes are dropped as hits pass them. */
+  private changes: { pitch: KnobChange[]; decay: KnobChange[] } = { pitch: [], decay: [] };
 
   constructor(ctx: BaseAudioContext, out: AudioNode, sample: number, fallback: FallbackVoice) {
     this.ctx = ctx; this.out = out; this.sample = sample; this.fallback = fallback;
@@ -31,7 +43,22 @@ export class Sampler implements Instrument {
   setSample(index: number): void { this.sample = index; }
 
   /** Pitch (64 = as recorded) and decay (127 = the whole sample) from the project's drum record. */
-  setKnobs(pitch: number, decay: number): void { this.knobs = { pitch, decay }; }
+  setKnobs(pitch: number, decay: number): void { this.knobs = { pitch, decay }; this.changes = { pitch: [], decay: [] }; }
+
+  /** An automation lane moved the pitch or decay knob at `time`; hits from then on use it. */
+  automate(time: number, knob: "pitch" | "decay", value: number): void {
+    const list = this.changes[knob];
+    let i = list.length;
+    while (i > 0 && list[i - 1]!.time > time) i--;
+    list.splice(i, 0, { time, value });
+  }
+
+  /** The knob's value at `time`, folding changes already passed into the base value. */
+  private knob(knob: "pitch" | "decay", time: number): number {
+    const list = this.changes[knob];
+    while (list.length && list[0]!.time <= time && (list.length === 1 || list[1]!.time <= time)) this.knobs[knob] = list.shift()!.value;
+    return knobAt(list, time, this.knobs[knob]);
+  }
 
   /** The app's FX switch: false ignores the pitch and decay knobs. */
   setKnobsEnabled(on: boolean): void { this.knobsOn = on; }
@@ -51,8 +78,8 @@ export class Sampler implements Instrument {
     const buf = this.buffers.get(sample ?? this.sample);
     const src = buf ? this.play(buf, gain, time) : this.synthesize(gain, time);
     if (this.knobsOn) {
-      if (buf) (src as AudioBufferSourceNode).playbackRate.value = drumPitchRatio(this.knobs.pitch);
-      const decay = drumDecaySeconds(this.knobs.decay);
+      if (buf) (src as AudioBufferSourceNode).playbackRate.value = drumPitchRatio(this.knob("pitch", time));
+      const decay = drumDecaySeconds(this.knob("decay", time));
       // The decay seconds are where the hit is about 40 dB down: a time constant of a fifth of that.
       if (Number.isFinite(decay)) gain.gain.setTargetAtTime(0, time, decay / 4.6);
     }

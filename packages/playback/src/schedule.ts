@@ -1,7 +1,7 @@
 // Turns an arrangement into timed MIDI messages and hands them out a little ahead of time, so a
 // MIDI output with timestamps (Web MIDI) plays them exactly. Pure: no timers, no MIDI access.
 // The caller calls `pump(now)` every few milliseconds and sends what it returns.
-import type { Arrangement } from "@circuit-desk/export";
+import type { Arrangement, AutoTarget } from "@circuit-desk/export";
 
 export interface TimedMessage {
   /** When to send, in the caller's clock (ms). */
@@ -11,9 +11,14 @@ export interface TimedMessage {
   track?: number;
   /** Drums: the pack sample a hit flips to. */
   sample?: number;
+  /**
+   * An automation change, for the built-in preview. `bytes` then holds the CC that carries it to a
+   * Circuit, or is empty where no CC exists (MIDI outputs skip empty messages).
+   */
+  auto?: { target: AutoTarget; index?: number; value: number };
 }
 
-interface Ev { tick: number; order: number; bytes: number[]; track?: number; sample?: number }
+interface Ev { tick: number; order: number; bytes: number[]; track?: number; sample?: number; auto?: TimedMessage["auto"] }
 
 export interface ScheduleOptions {
   /** Send MIDI clock (24 a quarter note) with start and stop. Default false. */
@@ -32,6 +37,13 @@ export function events(a: Arrangement, opts: ScheduleOptions = {}): Ev[] {
   a.tracks.forEach((t, i) => {
     if (opts.muted?.has(i)) return;
     for (const c of t.ccs) out.push({ tick: c.tick, order: 1, bytes: [0xb0 | (t.channel & 15), c.cc, c.value], track: i });
+    // Automation goes before notes at the same tick, so a hit or note starts with its new value.
+    for (const e of t.auto ?? []) {
+      out.push({
+        tick: e.tick, order: 1, bytes: e.cc ? [0xb0 | (e.cc.channel & 15), e.cc.cc & 127, e.value & 127] : [], track: i,
+        auto: { target: e.target, ...(e.index !== undefined ? { index: e.index } : {}), value: e.value },
+      });
+    }
     for (const n of t.notes) {
       out.push({ tick: n.tick, order: 2, bytes: [0x90 | (t.channel & 15), n.pitch, n.velocity], track: i, ...(n.sample !== undefined ? { sample: n.sample } : {}) });
       out.push({ tick: n.tick + n.dur, order: 1, bytes: [0x80 | (t.channel & 15), n.pitch, 0], track: i });
@@ -95,7 +107,7 @@ export class Schedule {
       const at = this.start + (this.pass * this.a.length + e.tick) * this.msPerTick;
       if (at >= horizon) break;
       this.next++;
-      out.push({ at: Math.max(at, now), bytes: e.bytes, ...(e.track !== undefined ? { track: e.track } : {}), ...(e.sample !== undefined ? { sample: e.sample } : {}) });
+      out.push({ at: Math.max(at, now), bytes: e.bytes, ...(e.track !== undefined ? { track: e.track } : {}), ...(e.sample !== undefined ? { sample: e.sample } : {}), ...(e.auto ? { auto: e.auto } : {}) });
       this.track(e.bytes);
     }
     return out;

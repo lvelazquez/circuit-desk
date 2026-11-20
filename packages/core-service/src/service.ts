@@ -359,7 +359,7 @@ export class ProjectService {
    */
   arrangement(id: string, opts: { source?: "scenes" | "current"; scene?: number; pattern?: number; repeats?: number; target?: "circuit" | "live" } = {}): X.Arrangement {
     const { target, ...rest } = opts;
-    return this.arrange(this.get(id), target === "live" ? { ...rest, channels: X.LIVE_PLAY_CHANNELS, drumNotes: X.LIVE_KIT_KEYS } : rest);
+    return this.arrange(this.get(id), target === "live" ? { ...rest, channels: X.LIVE_PLAY_CHANNELS, drumNotes: X.LIVE_KIT_KEYS, automationCcs: false } : rest);
   }
 
   /**

@@ -72,7 +72,7 @@ export function usePlayer(projectId: string | null, version: number) {
   const send = useCallback((msgs: TimedMessage[]): void => {
     if (preview) { engine.current?.handle(msgs); return; }
     const o = output();
-    if (o) for (const m of msgs) if (m.bytes[0] !== 0xf0 && m.bytes[0] !== 0xf7) o.send(m.bytes, m.at);
+    if (o) for (const m of msgs) if (m.bytes.length && m.bytes[0] !== 0xf0 && m.bytes[0] !== 0xf7) o.send(m.bytes, m.at);
   }, [output, preview]);
 
   /** Makes the engine (first time) and loads the drum samples this arrangement uses. */

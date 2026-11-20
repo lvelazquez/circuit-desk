@@ -25,6 +25,19 @@ describe("schedule", () => {
     expect(s.pump(0)).toEqual([{ at: 0, bytes: [0xb2, 1, 40], track: 2 }]);
   });
 
+  it("plays synth and drum automation with the Circuit's CC, and MIDI 1/2 mix lanes for the preview only", () => {
+    const b = blankProject();
+    b[N.notePatternOffset(0, 0) + N.LANE0] = 64;                    // Synth 1 macro 1, step 1
+    b[N.notePatternOffset(2, 0) + N.LANE0 + 192 * 11] = 20;          // MIDI 1 pan: no CC
+    b[N.drumPatternOffset(2, 0) + N.DLANE0 + 192 * 3 + 6] = 100;     // Drum 3 EQ, step 2
+    const s = new Schedule(arrange(N.openProject(b)), { lookahead: 200 });
+    s.play(0);
+    const msgs = s.pump(0);
+    expect(msgs).toContainEqual({ at: 0, bytes: [0xb0, 80, 64], track: 0, auto: { target: "macro", index: 0, value: 64 } });
+    expect(msgs).toContainEqual({ at: 0, bytes: [], track: 2, auto: { target: "pan", value: 20 } });
+    expect(msgs).toContainEqual({ at: 120 * msPerTick, bytes: [0xb9, 49, 100], track: 6, auto: { target: "drumEq", value: 100 } });
+  });
+
   it("hands out messages ahead of time, with exact timestamps", () => {
     const s = new Schedule(project(), { lookahead: 50 });
     expect(s.play(1000)).toEqual([]);

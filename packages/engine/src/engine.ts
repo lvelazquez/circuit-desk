@@ -136,6 +136,15 @@ export class PreviewEngine {
       const strip = this.strips[m.track];
       if (!strip) continue;
       const time = Math.max(audioS, audioS + (m.at - perfMs) / 1000);
+      if (m.auto) {
+        // Automation: macros to the Nova voice, drum pitch and decay to the sampler, the rest to the mixer.
+        const { target, index, value } = m.auto;
+        this.listener?.({ time, track: m.track, bytes: [...m.bytes] });
+        if (target === "macro") { if (strip.instrument instanceof NovaInstrument) strip.instrument.automate(time, index ?? 0, value); }
+        else if (target === "drumPitch" || target === "drumDecay") { if (strip.instrument instanceof Sampler) strip.instrument.automate(time, target === "drumPitch" ? "pitch" : "decay", value); }
+        else this.postMixer({ type: "auto", time, track: m.track, target, value });
+        continue;
+      }
       const kind = (m.bytes[0] ?? 0) & 0xf0, a = m.bytes[1] ?? 0, b = m.bytes[2] ?? 0;
       this.listener?.({ time, track: m.track, bytes: [...m.bytes], ...(m.sample !== undefined ? { sample: m.sample } : {}) });
       if (kind === 0x90 && b > 0) {
@@ -148,7 +157,10 @@ export class PreviewEngine {
   }
 
   /** Every track silent now. */
-  silence(): void { for (const s of this.strips) s.instrument.silence(this.ctx.currentTime); }
+  silence(): void {
+    for (const s of this.strips) s.instrument.silence(this.ctx.currentTime);
+    this.postMixer({ type: "clear" });
+  }
 
   setTrackLevel(track: number, level: number): void {
     const s = this.strips[track];

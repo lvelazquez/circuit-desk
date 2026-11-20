@@ -6,7 +6,9 @@ import { PatchFx } from "../fx/patch.ts";
 export type NovaEvent =
   | { frame: number; type: "on"; note: number; velocity: number }
   | { frame: number; type: "off"; note: number }
-  | { frame: number; type: "silence" };
+  | { frame: number; type: "silence" }
+  /** A macro knob moved (automation lanes 1–8): index 0–7, value 0–127. */
+  | { frame: number; type: "macro"; index: number; value: number };
 
 export class NovaSynth {
   private params: NovaParams;
@@ -24,6 +26,8 @@ export class NovaSynth {
   private values: Readonly<Record<string, number>>;
   private bpm = 120;
   private mono = new Float32Array(128);
+  /** Macro knob positions set by automation; undefined = the patch's stored position. */
+  private macros: (number | undefined)[] = [];
 
   constructor(sampleRate: number, values: Readonly<Record<string, number>> = defaultValues()) {
     this.sampleRate = sampleRate;
@@ -37,6 +41,7 @@ export class NovaSynth {
   /** New patch values; sounding voices pick them up from the next block. */
   setValues(values: Readonly<Record<string, number>>): void {
     this.values = values;
+    this.macros = [];
     this.params = novaParams(values);
     this.fx.setValues(values, this.bpm);
   }
@@ -79,8 +84,15 @@ export class NovaSynth {
 
   private apply(e: NovaEvent, frame: number): void {
     if (e.type === "silence") {
+      // Playback stopped: automation already queued for later must not move the next play.
+      this.queue = this.queue.filter((q) => q.type !== "macro");
       for (const v of this.voices) if (v.active) v.kill(this.params);
       this.held = [];
+      return;
+    }
+    if (e.type === "macro") {
+      this.macros[e.index] = e.value;
+      this.params = novaParams(this.values, this.macros);
       return;
     }
     if (e.type === "on") this.noteOn(e.note, e.velocity, frame);

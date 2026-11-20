@@ -49,6 +49,13 @@
 - **Measured but not yet used:** a stock-ARM sweep of the project FX (`~/Circuit Desk/Firmware-derived/sweep-project-fx.json`): delay sync is linear in its index, feedback is value << 16, and each reverb type writes its own 8 algorithm words.
 - **Not in this round:** master DJ filter and compressor (global settings), automation of levels, pans, sends and drum knobs.
 
+**Automation playback (2026-11-20):** every lane now plays.
+- **Preview:** synth macros move the patch (frame-timed in the Nova voice), level, pan and sends move in the mixer (5 ms glide), drum pitch and decay apply per hit, drum distortion and EQ in the mixer.
+- **To a Circuit:** the same changes go out as CC from the Programmer's Reference (macros CC 80–87 on the synth channel; drum knobs, level and pan on channel 10; synth levels, pans and all sends on channel 16). MIDI 1/2 level, pan and sends have no documented CC and play in the preview only.
+- **Assumptions:** a value holds until the next point; the device listens on the default channels with CC receive on; nothing is reset on the device at Stop.
+- **Card:** all 152 projects arrange; Synth 1 macro automation is in 25 projects (`tools/automation-survey.ts`).
+- **Next for automation:** editing lanes, and exporting synth and drum lanes to Live.
+
 **Next:** find why the oracle is silent (one to two days, time-boxed), then LFOs 1–2, then convert the swept DSP words to hertz and seconds.
 
 **Rule for this plan:** no device or card writes. Device reads (SysEx dump requests, the `fwid` query) need approval at the time. Firmware-derived data stays local and is never committed (§5).

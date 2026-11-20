@@ -4,6 +4,9 @@ import * as C from "./curves.ts";
 import { Chorus, Distortion, Reverb, SidechainEnv, StereoDelay, TiltEq } from "./effects.ts";
 import { ProjectMixer } from "./mixer.ts";
 import { PatchFx } from "./patch.ts";
+import { knobAt } from "../sampler.ts";
+import { NovaSynth } from "../nova/synth.ts";
+import { defaultValues } from "../nova/voice.ts";
 
 const SR = 48_000;
 
@@ -184,5 +187,71 @@ describe("project mixer", () => {
     m.process(strips(0, x), l, r, 0, n);
     expect(l[500]).toBeCloseTo(0.5, 6);                     // before the hit
     expect(Math.min(...Array.from(l.subarray(1000)))).toBeLessThan(0.05);
+  });
+});
+
+describe("automation in the preview", () => {
+  const base = (): SoundSettings => ({
+    reverb: { type: 2, decay: 64, damping: 64, sends: [0, 0, 0, 0, 0, 0, 0, 0] },
+    delay: { time: 64, sync: 0, feedback: 0, width: 127, ratio: 0, slew: 5, sends: [0, 0, 0, 0, 0, 0, 0, 0] },
+    fxBypass: false,
+    sidechains: [0, 1, 2, 3].map(() => ({ source: 4, attack: 0, hold: 50, decay: 70, depth: 0 })),
+    levels: [127, 127, 127, 127], pans: [64, 64, 64, 64],
+    drums: [0, 1, 2, 3].map((d) => ({ sample: d, level: 127, pitch: 64, decay: 127, distortion: 0, eq: 64, pan: 64 })),
+  });
+  const ones = (n: number): Float32Array => Float32Array.from({ length: n }, () => 1);
+
+  it("a level lane change takes effect at its frame, gliding over a few milliseconds", () => {
+    const m = new ProjectMixer(SR);
+    m.set(base(), 120);
+    m.automate(1000, 0, "level", 0);
+    const n = 2000, l = new Float32Array(n), r = new Float32Array(n);
+    m.process([[ones(n), ones(n)]], l, r, 0, n);
+    expect(l[999]).toBeCloseTo(1, 6);
+    expect(l[1010]!).toBeLessThan(1);
+    expect(l[1999]!).toBeLessThan(0.05);           // about four 5 ms time constants later
+  });
+
+  it("a pan lane change moves the balance", () => {
+    const m = new ProjectMixer(SR);
+    m.set(base(), 120);
+    m.automate(0, 4, "pan", 127);
+    const n = 3000, l = new Float32Array(n), r = new Float32Array(n);
+    m.process([undefined, undefined, undefined, undefined, [ones(n), ones(n)]], l, r, 0, n);
+    expect(l[n - 1]!).toBeLessThan(0.01);
+    expect(r[n - 1]!).toBeCloseTo(1, 3);
+  });
+
+  it("clear drops pending automation", () => {
+    const m = new ProjectMixer(SR);
+    m.set(base(), 120);
+    m.automate(100, 0, "level", 0);
+    m.clear();
+    const l = new Float32Array(500), r = new Float32Array(500);
+    m.process([[ones(500), ones(500)]], l, r, 0, 500);
+    expect(l[499]).toBeCloseTo(1, 6);
+  });
+
+  it("a drum knob change applies from its time on", () => {
+    const changes = [{ time: 1, value: 10 }, { time: 2, value: 90 }];
+    expect(knobAt(changes, 0.5, 64)).toBe(64);
+    expect(knobAt(changes, 1, 64)).toBe(10);
+    expect(knobAt(changes, 5, 64)).toBe(90);
+  });
+
+  it("a macro lane moves the patch: a filter macro opens a closed filter from its frame on", () => {
+    // Init patch with the filter closed and macro 1 → filter frequency (stored destination 21), full depth.
+    const values = { ...defaultValues(), "filter.frequency": 0, "macro1.a.destination": 21, "macro1.a.depth": 127, "macro1.position": 0 };
+    const brightness = (withMacro: boolean): number => {
+      const s = new NovaSynth(SR, values);
+      s.schedule({ frame: 0, type: "on", note: 48, velocity: 100 });
+      if (withMacro) s.schedule({ frame: 0, type: "macro", index: 0, value: 127 });
+      const out = new Float32Array(SR / 4);
+      s.process(out);
+      let d = 0;
+      for (let i = 1; i < out.length; i++) d += Math.abs(out[i]! - out[i - 1]!);
+      return d;
+    };
+    expect(brightness(true)).toBeGreaterThan(brightness(false) * 3);
   });
 });

@@ -8,6 +8,8 @@ export type NovaMessage =
   | { type: "on"; time: number; note: number; velocity: number }
   | { type: "off"; time: number; note: number }
   | { type: "silence"; time: number }
+  /** A macro knob moved (automation), at `time`. */
+  | { type: "macro"; time: number; index: number; value: number }
   /** Tempo, for synced chorus rates. */
   | { type: "bpm"; bpm: number }
   /** The app's FX switch: false plays the voices without the patch's effects. */
@@ -18,12 +20,19 @@ export interface NovaInit { values?: Record<string, number>; fx?: boolean; bpm?:
 
 /** The project mixer (fx/mixer.ts): 8 stereo strips in, one stereo mix out. */
 export const MIXER_PROCESSOR = "circuit-desk-mixer";
+/** What mixer automation can move. */
+export type MixerTarget = "level" | "pan" | "reverb" | "delay" | "drumDistortion" | "drumEq";
+
 /** What the mixer node starts with (processorOptions). */
 export interface MixerInit { sound?: import("@circuit-desk/ncs").SoundSettings; bpm?: number; fx?: boolean }
 export type MixerMessage =
   | { type: "sound"; sound: import("@circuit-desk/ncs").SoundSettings; bpm: number }
   | { type: "trigger"; time: number; drum: number }
-  | { type: "fx"; on: boolean };
+  /** An automation lane moved a strip's level, pan, send, or a drum's distortion or EQ (track 0–7). */
+  | { type: "auto"; time: number; track: number; target: MixerTarget; value: number }
+  | { type: "fx"; on: boolean }
+  /** Playback stopped: drop pending triggers and automation. */
+  | { type: "clear" };
 
 /** The capture tap: passes audio through and keeps the last seconds of it for a sound report. */
 export const TAP_PROCESSOR = "circuit-desk-tap";
