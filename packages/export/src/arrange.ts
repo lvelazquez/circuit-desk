@@ -66,6 +66,8 @@ export interface PatternClip {
   notes: MidiNote[];
   /** Automation sent as CC (MIDI tracks' knob lanes), from tick 0 of the pattern. */
   ccs: MidiCc[];
+  /** The pattern's other automation (synth and drum lanes, level, pan, sends), from tick 0. */
+  auto: AutoEvent[];
 }
 
 export interface ArrangedTrack {
@@ -323,14 +325,16 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
     const cc = withCcs ? deviceCc(t, what.target, what.index, channels) : undefined;
     return [{ tick: e.tick, ...what, value: e.value, ...(cc ? { cc } : {}) }];
   })));
-  if (patternAuto.some((list, t) => t !== 2 && t !== 3 && list.some((a) => a.length)))
-    warnings.push("Synth and drum automation plays in the app but is not exported to MIDI files or Live sets yet");
+  if (patternAuto.some((list) => list.some((a) => a.some((e) => e.cc?.channel === PROJECT_CHANNEL))))
+    warnings.push("level, pan and send lanes go to the Circuit's project channel 16: MIDI files keep them, Live sets leave them out");
+  if (patternAuto.slice(2, 4).some((list) => list.some((a) => a.length)))
+    warnings.push("MIDI 1/2 level, pan and send lanes have no CC on the Circuit: they play only in the app's preview");
 
   const directions = new Set<string>();
   const tracks: ArrangedTrack[] = TRACK_NAMES.map((name, t) => ({
     name,
     channel: channels[t] ?? 0,
-    patterns: patterns[t]!.map((p, i) => ({ length: patternLength(p.settings), notes: removeOverlaps(patternNotes[t]![i]!), ccs: patternCc[t]![i]! })),
+    patterns: patterns[t]!.map((p, i) => ({ length: patternLength(p.settings), notes: removeOverlaps(patternNotes[t]![i]!), ccs: patternCc[t]![i]!, auto: patternAuto[t]![i]! })),
     plays: [],
     notes: [],
     ccs: [],

@@ -56,6 +56,23 @@ describe.skipIf(!existsSync(LIVE))("Live set", () => {
     expect(r.tracks[1]!.arrangement.flatMap((c) => c.notes)).toEqual([{ pitch: 38, start: 0.5, dur: 0.0625, velocity: 80 }, { pitch: 38, start: 4.5, dur: 0.0625, velocity: 80 }]);
   });
 
+  it("writes synth macro and drum lanes as clip envelopes on the track's own controllers, not the project-channel ones", () => {
+    const b = blankProject();
+    putNote(b, 0, 0, 0, 60, 6, 100);
+    const lane = (t: number, k: number, step: number, v: number): void => { b[N.notePatternOffset(t, 0) + N.LANE0 + 192 * k + step * 6] = v; };
+    lane(0, 0, 0, 10); lane(0, 0, 2, 100);   // Synth 1 macro 1 (CC 80 on channel 1)
+    lane(0, 11, 0, 30);                       // Synth 1 pan (CC 117 on channel 16): left out
+    const x = buildAlsXml(arrange(N.openProject(b)), tpl, { instruments: "none" });
+    const track = /<MidiTrack Id="\d+"[\s\S]*?<\/MidiTrack>/.exec(x)![0];
+    const cc80 = /<ControllerTargets\.80 Id="(\d+)"/.exec(track)![1];
+    const envs = track.match(/<ClipEnvelope Id="\d+">[\s\S]*?<\/ClipEnvelope>/g) ?? [];
+    expect(envs.length).toBeGreaterThan(0);
+    expect(envs.every((e) => e.includes(`<PointeeId Value="${cc80}" />`))).toBe(true);
+    // Held steps: the start value, then at beat 0.5 the old value and the new one.
+    expect(envs[0]).toMatch(/Time="-63072000" Value="10"[\s\S]*Time="0.5" Value="10" \/><FloatEvent Id="\d+" Time="0.5" Value="100"/);
+    expect(x).not.toMatch(/__CC_TARGET_/);
+  });
+
   it("loads Live's starter instruments, or none", () => {
     expect(Object.keys(tpl.instruments).sort()).toEqual(["bass", "drums", "keys", "lead"]);
     const b = blankProject();

@@ -196,7 +196,8 @@ describe("automation lanes", () => {
     expect(a.tracks[2]!.auto).toEqual([{ tick: 0, target: "level", value: 90 }]);
     expect(a.tracks[5]!.auto).toEqual([{ tick: 0, target: "drumPitch", value: 70, cc: { channel: 9, cc: 34 } }]);
     expect(a.tracks[7]!.auto).toEqual([{ tick: 0, target: "reverb", value: 40, cc: { channel: 15, cc: 110 } }]);
-    expect(a.warnings.join("\n")).toMatch(/plays in the app but is not exported/);
+    expect(a.warnings.join("\n")).toMatch(/project channel 16: MIDI files keep them, Live sets leave them out/);
+    expect(a.warnings.join("\n")).toMatch(/MIDI 1\/2 level, pan and send lanes have no CC/);
     // The Live target gets the changes for the preview, but no Circuit CCs.
     expect(arrange(N.openProject(b), { source: "current", automationCcs: false }).tracks[0]!.auto[0]!.cc).toBeUndefined();
   });

@@ -108,7 +108,7 @@ async function run(): Promise<void> {
 
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Editor').click()`);
   check("Editor view shows the piano roll", await until(`!!document.querySelector('.roll')`));
-  check("automation lanes show under the piano roll", await until(`!!document.querySelector('.lane-points[aria-label^="Lane 1, Macro 1: 24 points, values 0–115, steps 1–4"]')`),
+  check("automation lanes show under the piano roll", await until(`!!document.querySelector('.lane-points[aria-label^="Lane 1, Macro 1: 24 points, values 0–115"]')`),
     await js<string>(`document.querySelector('.lane-points')?.getAttribute('aria-label') ?? 'none'`));
   check("the player can target a Circuit or the Live play-along set", (await js<string>(`[...document.getElementById('play-target').options].map(o => o.value).join()`)) === "circuit,live");
   const before = await js<number>(`document.querySelectorAll('.roll-note').length`);
@@ -135,6 +135,27 @@ async function run(): Promise<void> {
   await wait(300);
   const r2 = await rect();
   check("dragging a note's end makes it longer", r2.w - r0.w > stepPx * 0.8, `${r0.w} → ${r2.w}`);
+
+  // Editing lanes: the keyboard in a focused lane, then drawing a new lane with the mouse; each is one undoable edit.
+  const statusText = (): Promise<string> => js<string>(`document.querySelector('[role=status]').textContent`);
+  const laneSel = (prefix: string): string => `document.querySelector('.lane-points[aria-label^="${prefix}"]')`;
+  await js(`${laneSel("Lane 1, Macro 1")}.focus()`);
+  await key("Up");
+  check("Up in a focused lane raises the point and saves it", await until(`document.querySelector('[role=status]').textContent.includes('Macro 1: 1 at step 1.1')`), await statusText());
+  await js(`(() => { const s = document.querySelector('.lane-add select'); s.value = '12'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  check("a lane can be added", await until(`!!${laneSel("Lane 12, Pan: empty")}`));
+  await js(`${laneSel("Lane 12, Pan")}.scrollIntoView({ block: 'center' })`);
+  await wait(200);
+  const lr = await js<{ x: number; y: number; w: number; h: number }>(`(() => { const b = ${laneSel("Lane 12, Pan")}.getBoundingClientRect(); return { x: b.left, y: b.top, w: b.width, h: b.height }; })()`);
+  await mouse("mouseDown", lr.x + 3, lr.y + lr.h * 0.8); await mouse("mouseMove", lr.x + lr.w * 0.12, lr.y + lr.h * 0.5); await mouse("mouseMove", lr.x + lr.w * 0.25, lr.y + lr.h * 0.2); await mouse("mouseUp", lr.x + lr.w * 0.25, lr.y + lr.h * 0.2);
+  // Drawn from 20 % to 80 % of the lane's height: values about 25 to 100.
+  check("drawing with the mouse saves a run of points in one edit, at the heights drawn", await until(`(() => { const m = /^Lane 12, Pan: \\d+ points, values (\\d+)–(\\d+)/.exec(${laneSel("Lane 12, Pan")}?.getAttribute('aria-label') ?? ''); return !!m && +m[1] < 40 && +m[2] > 85 && +m[2] < 115; })()`),
+    `${await js<string>(`${laneSel("Lane 12, Pan")}?.getAttribute('aria-label') ?? 'none'`)} · ${await statusText()}`);
+  menuClick("Undo");
+  check("Undo removes the drawn points", await until(`!!${laneSel("Lane 12, Pan: empty")}`));
+  menuClick("Undo");
+  check("a second Undo restores the macro lane", await until(`!!${laneSel("Lane 1, Macro 1: 24 points, values 0–115")}`));
+  check("each drum's lanes can be chosen for editing", await js<boolean>(`document.querySelector('.drum-automation > label select')?.options.length === 4`));
 
   await js(`document.querySelector('.drum-cell').click()`);
   check("a click on the drum grid adds a hit", await until(`document.querySelector('.drum-cell').getAttribute('aria-pressed') === 'true'`));

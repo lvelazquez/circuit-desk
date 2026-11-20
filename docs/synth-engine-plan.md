@@ -54,7 +54,8 @@
 - **To a Circuit:** the same changes go out as CC from the Programmer's Reference (macros CC 80–87 on the synth channel; drum knobs, level and pan on channel 10; synth levels, pans and all sends on channel 16). MIDI 1/2 level, pan and sends have no documented CC and play in the preview only.
 - **Assumptions:** a value holds until the next point; the device listens on the default channels with CC receive on; nothing is reset on the device at Stop.
 - **Card:** all 152 projects arrange; Synth 1 macro automation is in 25 projects (`tools/automation-survey.ts`).
-- **Next for automation:** editing lanes, and exporting synth and drum lanes to Live.
+- **Editing (2026-11-20):** lanes are drawn with the pointer (a straight line between pointer positions; Alt erases) or edited from the keyboard in the Editor, for note tracks under the piano roll and for each drum below the drum grid; each change is one undoable edit. MCP: `get_automation`, `set_automation`.
+- **Export (2026-11-20):** MIDI files carry synth and drum lanes as CC on the channel the Circuit hears them on (16 for levels, pans and sends). Live sets carry them as clip envelopes on `ControllerTargets.<cc>` (target 0 is pitch bend, checked on Live 12's own demo sets), but only lanes on the track's own channel: macros, drum knobs, drum level and pan. Project-channel lanes are left out of Live sets, with a warning.
 
 **Next:** find why the oracle is silent (one to two days, time-boxed), then LFOs 1–2, then convert the swept DSP words to hertz and seconds.
 

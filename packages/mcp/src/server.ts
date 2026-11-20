@@ -145,6 +145,29 @@ export function createServer(service = new ProjectService(), opts: { socket?: st
     annotations: EDIT,
   }, ({ project: id, track: t, pattern: p, steps }) => run(async () => changes(await svc.setDrumSteps(id, t, p, steps))));
 
+  server.registerTool("get_automation", {
+    title: "Get automation lanes",
+    description: "The automation lanes of one pattern that hold any value: per lane its number, what it drives (Synth: macros 1–8, then level, reverb send, delay send, pan; MIDI: template knobs 1–8, then the same four; drums: pitch, decay, distortion, EQ, then level, reverb send, delay send, pan) and its 192 points (32 steps × 6, null = no point). Also the names of every lane.",
+    inputSchema: { project, track, pattern },
+    annotations: READ,
+  }, ({ project: id, track: t, pattern: p }) => run(() => svc.getAutomation(id, t, p)));
+
+  server.registerTool("set_automation", {
+    title: "Set automation points",
+    description: "Sets points of one automation lane. A point is a step (1–32), a sixth of that step (1–6, default 1) and a value 0–127, or null to remove it. A value holds until the next point. With clear: true the lane is emptied first, so the points become the whole lane; clear: true with no points removes the lane's automation. Returns the byte ranges that changed.",
+    inputSchema: {
+      project, track, pattern,
+      lane: z.number().int().min(1).max(12).describe("Lane 1–12 for Synth and MIDI tracks, 1–8 for drums (see get_automation for what each drives)"),
+      points: z.array(z.object({
+        step,
+        micro: z.number().int().min(1).max(6).optional().describe("Which sixth of the step, 1–6 (default 1)"),
+        value: z.number().int().min(0).max(127).nullable().describe("0–127, or null to remove the point"),
+      })),
+      clear: z.boolean().optional().describe("Empty the lane first"),
+    },
+    annotations: EDIT,
+  }, ({ project: id, track: t, pattern: p, lane, points, clear }) => run(async () => changes(await svc.setAutomation(id, t, p, lane, points, { clear: clear ?? false }))));
+
   server.registerTool("set_pattern_settings", {
     title: "Set pattern length and rate",
     description: "Sets a pattern's first and last step (its length) and its sync rate (the length of one step).",

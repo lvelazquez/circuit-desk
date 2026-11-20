@@ -1,6 +1,7 @@
-// Edits. Each returns a new project; the input is never changed. Only fields the registry marks
-// `verified` are written: note and drum steps, pattern first/last step, sync rate, direction,
-// scenes and chains. Everything else in the file is carried over byte for byte.
+// Edits. Each returns a new project; the input is never changed. Written: note and drum steps,
+// pattern first/last step, sync rate, direction, scenes and chains (registry `verified`), and
+// automation lanes, whose storage is known (32 steps × 6 points, 0–127, 0xFF = none) though which
+// parameter each lane drives is `partial`. Everything else is carried over byte for byte.
 import * as L from "./layout.ts";
 import { buildDrumPattern, buildNotePattern, parseDrumPattern, parseNotePattern, type DrumPattern, type NotePattern } from "./pattern.ts";
 import { extraLanesSum, readTrailer, type Chain, type Project } from "./project.ts";
@@ -88,6 +89,22 @@ export function writeDrumPattern(p: Project, drum: number, index: number, m: Dru
   checkDrumPattern(m, parseDrumPattern(p.bytes.slice(o, o + L.DPAT)));
   const out = p.bytes.slice();
   out.set(buildDrumPattern(m, out.slice(o, o + L.DPAT)), o);
+  return { bytes: out };
+}
+
+/**
+ * Replaces automation lane `lane` (0-based) of pattern `index` of `track` (0–7: Synth 1, Synth 2,
+ * MIDI 1, MIDI 2, Drum 1–4) with `points`: 192 values (32 steps × 6 points), each 0–127 or null.
+ */
+export function writeLane(p: Project, track: number, index: number, lane: number, points: readonly (number | null)[]): Project {
+  int("track", track, 0, 7); int("pattern", index, 0, L.PATTERNS_PER_TRACK - 1);
+  int("lane", lane, 0, track < 4 ? L.NLANES - 1 : L.DLANES - 1);
+  if (points.length !== L.LANE) throw new RangeError(`a lane has ${L.LANE} points (32 steps × 6), got ${points.length}`);
+  points.forEach((v, k) => { if (v !== null) int(`point ${k + 1}`, v, 0, 127); });
+  const o = track < 4 ? L.notePatternOffset(track, index) + L.LANE0 : L.drumPatternOffset(track - 4, index) + L.DLANE0;
+  const out = p.bytes.slice();
+  out.set(points.map((v) => (v === null ? 0xff : v)), o + L.LANE * lane);
+  if (track === 2 || track === 3) keepExtraLanes(p, out);
   return { bytes: out };
 }
 

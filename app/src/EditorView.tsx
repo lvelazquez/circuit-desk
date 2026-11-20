@@ -19,9 +19,9 @@ interface Drag { mode: "move" | "resize"; step: number; pitch: number; x0: numbe
 /** Notes are drawn at least this opaque, reaching full at velocity 127, so soft notes stay visible. */
 const VELOCITY_ALPHA_FLOOR = 0.45;
 
-export function PianoRoll({ projectId, version, track, pattern, data, onNoteSteps, onSelectStep, playStep }: {
+export function PianoRoll({ projectId, version, track, pattern, data, onNoteSteps, onSelectStep, playStep, onLaneEdit }: {
   projectId: string | null; version: number; track: TrackName; playStep: number | null; pattern: number; data: NotePatternData;
-  onNoteSteps: (steps: NoteStepIn[], label: string) => void; onSelectStep: (s: number) => void;
+  onNoteSteps: (steps: NoteStepIn[], label: string) => void; onSelectStep: (s: number) => void; onLaneEdit: LaneEdit;
 }) {
   const notes = stepMap(data.steps);
   const all = data.steps.flatMap((s) => s.notes.map((n) => ({ ...n, step: s.step })));
@@ -153,7 +153,7 @@ export function PianoRoll({ projectId, version, track, pattern, data, onNoteStep
         <div className="velocity-lane" aria-label="Velocity per step" role="img">
           {velocities.map((v, k) => <span key={k} title={v ? `Step ${k + 1}: ${v}` : undefined}><i style={vars({ level: v / 127 })} /></span>)}
         </div>
-        <AutomationLanes projectId={projectId} version={version} track={track} pattern={pattern} />
+        <AutomationLanes projectId={projectId} version={version} track={track} pattern={pattern} onLaneEdit={onLaneEdit} />
       </div>
       <p className="visually-hidden" aria-live="polite">Step {cursor.step}, {noteSpoken(cursor.pitch)}: {described}</p>
       <p id="roll-help" className="hint">
@@ -205,33 +205,171 @@ export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps, play
   );
 }
 
-/** The pattern's automation lanes, aligned with the piano roll: 6 points a step, 0–127, gaps where none. They play (not editable yet). */
-function AutomationLanes({ projectId, version, track, pattern }: { projectId: string | null; version: number; track: TrackName; pattern: number }) {
+/** Edits one lane: 192 points (32 steps × 6), each 0–127 or empty. */
+export type LaneEdit = (track: TrackName, lane: number, points: (number | null)[], label: string) => void;
+
+const LANE_POINTS = 192;
+
+/**
+ * The pattern's automation lanes, aligned with the piano roll: 6 points a step, 0–127, gaps where
+ * none. Drawn with the pointer or edited from the keyboard; each change is one undoable edit.
+ */
+export function AutomationLanes({ projectId, version, track, pattern, onLaneEdit }: {
+  projectId: string | null; version: number; track: TrackName; pattern: number; onLaneEdit: LaneEdit;
+}) {
   const [auto, setAuto] = useState<Automation | null>(null);
+  const [added, setAdded] = useState<number[]>([]);
   useEffect(() => {
     if (!projectId) return;
     let live = true;
     void call("getAutomation", projectId, track, pattern).then((a) => { if (live) setAuto(a); }, () => { if (live) setAuto(null); });
     return () => { live = false; };
   }, [projectId, version, track, pattern]);
+  useEffect(() => setAdded([]), [track, pattern]);
   if (!auto) return null;
-  if (!auto.lanes.length) return <p className="lane-note">No automation in this pattern.</p>;
+  const shown = [...new Set([...auto.lanes.map((l) => l.lane), ...added])].sort((x, y) => x - y);
+  const free = auto.names.map((name, k) => ({ lane: k + 1, name })).filter((x) => !shown.includes(x.lane));
+  const empty = (): (number | null)[] => new Array<number | null>(LANE_POINTS).fill(null);
   return (
-    <div className="automation" aria-label={`Automation, ${auto.lanes.length} of ${auto.laneCount} lanes in use; they play in the preview and go to a Circuit as CC (not editable yet; ${auto.evidence})`} role="group">
-      <p className="lane-note">These lanes play: in the built-in preview, and as CC when playing to a Circuit. A value holds until the next point; editing comes later.</p>
-      {auto.lanes.map((l) => {
-        const vals = l.points.filter((v): v is number => v !== null);
-        const steps = l.points.flatMap((v, k) => (v === null ? [] : [Math.floor(k / 6) + 1]));
-        return (
-          <div key={l.lane} className="lane-row">
-            <div className="lane-points" role="img"
-              aria-label={`Lane ${l.lane}, ${l.name}: ${vals.length} points, values ${Math.min(...vals)}–${Math.max(...vals)}, steps ${steps[0]}–${steps.at(-1)}`}>
-              {l.points.map((v, k) => <i key={k} data-empty={v === null} style={vars({ level: (v ?? 0) / 127 })} />)}
-            </div>
-            <span className="lane-name" aria-hidden="true">{l.lane}. {l.name}</span>
-          </div>
-        );
-      })}
+    <div className="automation" role="group" aria-label={`Automation of ${track} pattern ${pattern}, ${auto.lanes.length} of ${auto.laneCount} lanes in use (${auto.evidence})`}>
+      <p className="lane-note">These lanes play in the built-in preview and go to a Circuit as CC. A value holds until the next point.</p>
+      {shown.map((lane) => (
+        <LaneEditor key={`${track}-${pattern}-${lane}`} lane={lane} name={auto.names[lane - 1] ?? `Lane ${lane}`}
+          points={auto.lanes.find((l) => l.lane === lane)?.points ?? empty()}
+          onCommit={(pts, label) => onLaneEdit(track, lane, pts, label)} />
+      ))}
+      {free.length > 0 && (
+        <label className="row lane-add">
+          <span>Add a lane</span>
+          <select value="" onChange={(e) => { const n = Number(e.target.value); if (n) setAdded((a) => [...a, n]); }}>
+            <option value="">Choose…</option>
+            {free.map((f) => <option key={f.lane} value={f.lane}>{f.lane}. {f.name}</option>)}
+          </select>
+        </label>
+      )}
+      <p id="lane-help" className="hint">
+        Click or drag in a lane to draw (Alt erases). In a focused lane, arrows move the cursor (Shift: a whole step); Up and Down change the value (Shift: by 10);
+        Delete removes the point (Shift: the whole step); Enter fills the step with the cursor's value.
+      </p>
     </div>
+  );
+}
+
+/** The value in force at point k: the point itself, else the last one before it, else `fallback`. */
+function heldAt(points: readonly (number | null)[], k: number, fallback: number): number {
+  for (let i = k; i >= 0; i--) { const v = points[i]; if (v !== null && v !== undefined) return v; }
+  return fallback;
+}
+
+function LaneEditor({ lane, name, points, onCommit }: { lane: number; name: string; points: (number | null)[]; onCommit: (pts: (number | null)[], label: string) => void }) {
+  const [draft, setDraft] = useState<(number | null)[] | null>(null);
+  const draftRef = useRef<(number | null)[] | null>(null);
+  const [cursor, setCursor] = useState(0);
+  const [focused, setFocused] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const drag = useRef<{ last: number; lastValue: number; erase: boolean } | null>(null);
+  // The saved lane arrived: drop the local drawing.
+  useEffect(() => { setDraft(null); draftRef.current = null; }, [points]);
+  const shown = draft ?? points;
+  const put = (next: (number | null)[]): void => { draftRef.current = next; setDraft(next); };
+  const at = (e: PointerEvent<HTMLDivElement>): { k: number; v: number } => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return { k: clamp(Math.floor(((e.clientX - r.left) / r.width) * LANE_POINTS), 0, LANE_POINTS - 1), v: clamp(Math.round((1 - (e.clientY - r.top) / r.height) * 127), 0, 127) };
+  };
+  const where = (k: number): string => `step ${Math.floor(k / 6) + 1}.${(k % 6) + 1}`;
+  const commit = (next: (number | null)[], label: string): void => { put(next); onCommit(next, `${name}: ${label}`); };
+
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>): void => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.currentTarget.focus();
+    const { k, v } = at(e), next = [...shown];
+    next[k] = e.altKey ? null : v;
+    drag.current = { last: k, lastValue: v, erase: e.altKey };
+    put(next); setCursor(k);
+  };
+  const onPointerMove = (e: PointerEvent<HTMLDivElement>): void => {
+    const d = drag.current;
+    if (!d) return;
+    const { k, v } = at(e), next = [...(draftRef.current ?? shown)];
+    // A straight line from the last pointer position, so a fast drag leaves no gaps or steps.
+    const span = Math.abs(k - d.last) || 1;
+    for (let i = Math.min(k, d.last); i <= Math.max(k, d.last); i++) {
+      if (i === d.last && k !== d.last) continue;
+      next[i] = d.erase ? null : Math.round(d.lastValue + ((v - d.lastValue) * Math.abs(i - d.last)) / span);
+    }
+    d.last = k; d.lastValue = v;
+    put(next); setCursor(k);
+  };
+  const onPointerUp = (): void => {
+    const d = drag.current;
+    drag.current = null;
+    if (d && draftRef.current) onCommit(draftRef.current, `${name}: ${d.erase ? "erased" : "drew"} points`);
+  };
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>): void => {
+    const step = e.shiftKey || e.metaKey || e.ctrlKey ? 6 : 1;
+    const value = heldAt(shown, cursor, 64);
+    let next: (number | null)[] | null = null, label = "";
+    switch (e.key) {
+      case "ArrowLeft": setCursor((c) => clamp(c - step, 0, LANE_POINTS - 1)); break;
+      case "ArrowRight": setCursor((c) => clamp(c + step, 0, LANE_POINTS - 1)); break;
+      case "Home": setCursor(0); break;
+      case "End": setCursor(LANE_POINTS - 1); break;
+      case "ArrowUp": case "ArrowDown": {
+        const v = clamp(value + (e.key === "ArrowUp" ? 1 : -1) * (e.shiftKey ? 10 : 1), 0, 127);
+        next = [...shown]; next[cursor] = v; label = `${v} at ${where(cursor)}`; break;
+      }
+      case "Delete": case "Backspace": {
+        next = [...shown];
+        if (e.shiftKey) { const s0 = cursor - (cursor % 6); for (let i = s0; i < s0 + 6; i++) next[i] = null; label = `cleared step ${s0 / 6 + 1}`; }
+        else { next[cursor] = null; label = `removed the point at ${where(cursor)}`; }
+        break;
+      }
+      case "Enter": {
+        next = [...shown]; const s0 = cursor - (cursor % 6);
+        for (let i = s0; i < s0 + 6; i++) next[i] = value;
+        label = `filled step ${s0 / 6 + 1} with ${value}`; break;
+      }
+      default: return;
+    }
+    e.preventDefault();
+    if (next) commit(next, label);
+  };
+
+  const vals = shown.filter((v): v is number => v !== null);
+  const summary = vals.length ? `${vals.length} points, values ${Math.min(...vals)}–${Math.max(...vals)}` : "empty";
+  const here = shown[cursor];
+  return (
+    <div className="lane-row">
+      <div ref={ref} className="lane-points" tabIndex={0} role="group" data-focused={focused}
+        aria-label={`Lane ${lane}, ${name}: ${summary}`} aria-describedby="lane-help"
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
+        onKeyDown={onKeyDown} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}>
+        {shown.map((v, k) => <i key={k} data-empty={v === null} data-cursor={focused && k === cursor} style={vars({ level: (v ?? 0) / 127 })} />)}
+      </div>
+      <span className="lane-name">
+        {lane}. {name}{focused ? ` · ${where(cursor)}: ${here ?? "no point"}` : ""}
+        {/* Always present, so the row keeps its height while drawing starts. */}
+        <button type="button" className="btn btn-small" disabled={!vals.length} onClick={() => commit(new Array<number | null>(LANE_POINTS).fill(null), "cleared the lane")}>Clear lane {lane}</button>
+      </span>
+      <span className="visually-hidden" aria-live="polite">{focused ? `${where(cursor)}: ${here ?? "no point"}` : ""}</span>
+    </div>
+  );
+}
+
+/** The automation lanes of one drum of the pattern, chosen from the four. */
+export function DrumAutomation({ projectId, version, pattern, onLaneEdit }: { projectId: string | null; version: number; pattern: number; onLaneEdit: LaneEdit }) {
+  const [drum, setDrum] = useState<DrumTrackName>("Drum 1");
+  return (
+    <section aria-label="Drum automation" className="drum-automation">
+      <label className="row">
+        <span>Automation of</span>
+        <select value={drum} onChange={(e) => setDrum(e.target.value as DrumTrackName)}>
+          {DRUM_NAMES.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </label>
+      <AutomationLanes projectId={projectId} version={version} track={drum} pattern={pattern} onLaneEdit={onLaneEdit} />
+    </section>
   );
 }

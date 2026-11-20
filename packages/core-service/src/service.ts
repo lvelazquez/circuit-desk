@@ -30,6 +30,8 @@ export interface DrumStepOut { step: number; velocity: number; probability: numb
 export interface PatternSettingsOut { firstStep: number; lastStep: number; syncRate: SyncRate; direction: number }
 
 export interface NoteStepIn { step: number; notes: NoteOut[]; probability?: number }
+/** One automation point: step 1–32, sixth of the step 1–6 (default 1), value 0–127 or null to remove. */
+export interface AutomationPointIn { step: number; micro?: number; value: number | null }
 export interface DrumStepIn { step: number; velocity: number; probability?: number; microSteps?: number[] }
 
 interface Open {
@@ -463,7 +465,27 @@ export class ProjectService {
       if (lane.every((v) => v === 0xff)) return [];
       return [{ ...N.laneInfo(kind, k + 1), points: Array.from(lane, (v) => (v === 0xff ? null : v)) }];
     });
-    return { track, pattern, settings: settingsOut(m.settings), lanes, laneCount: m.lanes.length, evidence: N.LANE_EVIDENCE, pointsPerStep: 6 };
+    const names = m.lanes.map((_, k) => N.laneInfo(kind, k + 1).name);
+    return { track, pattern, settings: settingsOut(m.settings), lanes, laneCount: m.lanes.length, names, evidence: N.LANE_EVIDENCE, pointsPerStep: 6 };
+  }
+
+  /**
+   * Sets points of one automation lane (lane 1–12 for Synth and MIDI tracks, 1–8 for drums). Each
+   * point is a step (1–32), a sixth of that step (1–6, default 1), and a value 0–127 or null to
+   * remove it. With `clear`, the lane is emptied first, so `points` becomes the whole lane.
+   */
+  setAutomation(id: string, track: TrackName, pattern: number, lane: number, points: readonly AutomationPointIn[], opts: { clear?: boolean } = {}): N.ChangedRange[] {
+    const t = trackIndex(track), i = one("pattern", pattern, 8), k = one("lane", lane, t < 4 ? N.NLANES : N.DLANES);
+    return this.edit(id, (p) => {
+      const m = t < 4 ? N.readNotePattern(p, t, i) : N.readDrumPattern(p, t - 4, i);
+      const cur: (number | null)[] = opts.clear ? new Array<number | null>(N.LANE).fill(null) : Array.from(m.lanes[k]!, (v) => (v === 0xff ? null : v));
+      for (const pt of points) {
+        const at = one("step", pt.step, 32) * 6 + one("micro-step", pt.micro ?? 1, 6);
+        if (pt.value !== null && (!Number.isInteger(pt.value) || pt.value < 0 || pt.value > 127)) throw new ServiceError(`step ${pt.step}: a lane value is 0–127 or null, got ${pt.value}`);
+        cur[at] = pt.value;
+      }
+      return N.writeLane(p, t, i, k, cur);
+    });
   }
 
   exportMidi(id: string, opts: { source?: "scenes" | "current"; repeats?: number } = {}): { path: string; notes: string[] } {

@@ -41,7 +41,7 @@ describe("circuit-desk MCP server", () => {
   it("lists its tools, each with a description and read-only hint", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
-    for (const n of ["list_projects", "open_project", "get_pattern", "set_steps", "set_drum_steps", "set_pattern_settings", "get_scenes", "set_chain", "set_scene", "undo", "redo", "diff_vs_original", "validate", "get_fields", "save_copy", "export_midi", "export_als"]) expect(names).toContain(n);
+    for (const n of ["list_projects", "open_project", "get_pattern", "set_steps", "set_drum_steps", "set_pattern_settings", "get_automation", "set_automation", "get_scenes", "set_chain", "set_scene", "undo", "redo", "diff_vs_original", "validate", "get_fields", "save_copy", "export_midi", "export_als"]) expect(names).toContain(n);
     for (const t of tools) { expect(t.description).toBeTruthy(); expect(t.annotations?.readOnlyHint).toBeTypeOf("boolean"); }
   });
 
@@ -114,5 +114,20 @@ describe("circuit-desk MCP server", () => {
     expect(() => checkWritable(join(paths.copies, "Tracks", "01_X", "Sessions", "01.ncs"), [paths.copies])).toThrow(/refusing/);
     expect(() => checkWritable(join(paths.copies, "..", "x.ncs"), [paths.copies])).toThrow(/refusing/);
     expect(existsSync(paths.copies) && readdirSync(paths.copies).length).toBe(1);
+  });
+
+  it("sets automation points, clears a lane, and refuses values the device cannot store", async () => {
+    await call("set_automation", { project: "p1", track: "Drum 2", pattern: 1, lane: 8, points: [{ step: 1, value: 0 }, { step: 2, micro: 4, value: 127 }] });
+    const got = (await call("get_automation", { project: "p1", track: "Drum 2", pattern: 1 })).json as { lanes: { lane: number; name: string; points: (number | null)[] }[]; names: string[] };
+    const pan = got.lanes.find((l) => l.lane === 8)!;
+    expect(pan.name).toBe("Pan");
+    expect([pan.points[0], pan.points[6 + 3], pan.points[1]]).toEqual([0, 127, null]);
+    expect(got.names).toHaveLength(8);
+    await call("set_automation", { project: "p1", track: "Drum 2", pattern: 1, lane: 8, points: [], clear: true });
+    const after = (await call("get_automation", { project: "p1", track: "Drum 2", pattern: 1 })).json as { lanes: unknown[] };
+    expect(after.lanes).toHaveLength(0);
+    const bad = await call("set_automation", { project: "p1", track: "Drum 2", pattern: 1, lane: 9, points: [{ step: 1, value: 3 }] });
+    expect(bad.error).toBe(true);
+    expect(bad.text).toMatch(/lane must be 1–8/);
   });
 });

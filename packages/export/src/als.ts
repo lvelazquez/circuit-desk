@@ -111,7 +111,39 @@ class Ids {
   }
 }
 
-function clipXml(tpl: string, o: { id: number; time: number; name: string; colour: number; length: number; loop: boolean; notes: readonly MidiNote[]; ppq: number }): string {
+/** A CC value change inside a clip, from the clip's start. */
+interface ClipCc { tick: number; cc: number; value: number }
+
+/**
+ * A clip's CC envelopes. Live addresses a MIDI track's controllers as ControllerTargets.N, N = the CC
+ * number (target 0 is pitch bend: checked on Live 12's own demo sets, whose target-0 envelopes reach
+ * 2496 and target-1 ones are recorded mod-wheel moves). The target id is only known once the track's
+ * ids are made unique, so a placeholder stands in for it (see CC_TARGET). A step change is two events
+ * at the same time, the old value then the new, as Live writes held automation.
+ */
+function envelopesXml(ccs: readonly ClipCc[], ppq: number): string {
+  const byCc = new Map<number, ClipCc[]>();
+  for (const c of ccs) byCc.set(c.cc, [...(byCc.get(c.cc) ?? []), c]);
+  let envId = 0;
+  return [...byCc.keys()].sort((a, b) => a - b).map((cc) => {
+    const list = byCc.get(cc)!.sort((a, b) => a.tick - b.tick);
+    let evId = 1, prev = list[0]!.value;
+    const ev = [`<FloatEvent Id="${evId++}" Time="-63072000" Value="${prev}" />`];
+    for (const c of list) {
+      const t = num(c.tick / ppq);
+      ev.push(`<FloatEvent Id="${evId++}" Time="${t}" Value="${prev}" />`, `<FloatEvent Id="${evId++}" Time="${t}" Value="${c.value}" />`);
+      prev = c.value;
+    }
+    return `<ClipEnvelope Id="${envId++}"><EnvelopeTarget><PointeeId Value="${CC_TARGET}${cc}__" /></EnvelopeTarget><Automation><Events>${ev.join("")}</Events>`
+      + `<AutomationTransformViewState><IsTransformPending Value="false" /><TimeAndValueTransforms /></AutomationTransformViewState></Automation>`
+      + `<LoopSlot><Value /></LoopSlot><ScrollerTimePreserver><LeftTime Value="0" /><RightTime Value="0" /></ScrollerTimePreserver></ClipEnvelope>`;
+  }).join("");
+}
+
+/** Placeholder for a controller's target id in a clip envelope, replaced per track. */
+const CC_TARGET = "__CC_TARGET_";
+
+function clipXml(tpl: string, o: { id: number; time: number; name: string; colour: number; length: number; loop: boolean; notes: readonly MidiNote[]; ccs?: readonly ClipCc[]; ppq: number }): string {
   const beats = (t: number): number => t / o.ppq;
   const byKey = new Map<number, MidiNote[]>();
   for (const n of o.notes) byKey.set(n.pitch, [...(byKey.get(n.pitch) ?? []), n]);
@@ -130,12 +162,32 @@ function clipXml(tpl: string, o: { id: number; time: number; name: string; colou
   x = must(x, /(<RemoteableTimeSignature Id="\d+">\s*<Numerator Value=")\d+(")/, "$14$2", "the clip meter");
   x = must(x, /<KeyTracks>[\s\S]*<\/KeyTracks>/, `<KeyTracks>${keys}</KeyTracks>`, "the clip notes");
   x = must(x, /(<NoteIdGenerator>\s*<NextId Value=")\d+(")/, `$1${noteId}$2`, "the note id counter");
-  x = x.replace(/<Envelopes>[\s\S]*?<\/Envelopes>\s*<\/Envelopes>/, "<Envelopes><Envelopes /></Envelopes>");
+  const env = o.ccs?.length ? envelopesXml(o.ccs, o.ppq) : "";
+  // The template clip has <Envelopes><Envelopes /></Envelopes>; a clip with envelopes, the full form.
+  x = must(x, /<Envelopes>\s*(?:<Envelopes \/>|<Envelopes>[\s\S]*?<\/Envelopes>)\s*<\/Envelopes>/,
+    env ? `<Envelopes><Envelopes>${env}</Envelopes></Envelopes>` : "<Envelopes><Envelopes /></Envelopes>", "the clip envelopes");
   return x;
 }
 
 const emptySlot = (i: number): string => `<ClipSlot Id="${i}"><LomId Value="0" /><ClipSlot><Value /></ClipSlot><HasStop Value="true" /><NeedRefreeze Value="true" /></ClipSlot>`;
 const fullSlot = (i: number, clip: string): string => `<ClipSlot Id="${i}"><LomId Value="0" /><ClipSlot><Value>${clip}</Value></ClipSlot><HasStop Value="true" /><NeedRefreeze Value="true" /></ClipSlot>`;
+
+/** The CC automation a track can carry in Live: knob lanes, and lanes whose CC is on the track's own channel. */
+function trackCcs(t: Pick<ArrangedTrack, "ccs" | "auto">, channel: number): ClipCc[] {
+  return [...t.ccs, ...(t.auto ?? []).flatMap((e) => (e.cc && (e.cc.channel & 15) === (channel & 15) ? [{ tick: e.tick, cc: e.cc.cc, value: e.value }] : []))];
+}
+
+/** CC changes inside [from, from + length), from the window's start; the value in force at the start comes first. */
+function ccsIn(all: readonly ClipCc[], from: number, length: number): ClipCc[] {
+  const out: ClipCc[] = [];
+  const before = new Map<number, ClipCc>();
+  for (const c of all) {
+    if (c.tick < from) { const b = before.get(c.cc); if (!b || c.tick >= b.tick) before.set(c.cc, c); }
+    else if (c.tick < from + length) out.push({ ...c, tick: c.tick - from });
+  }
+  for (const [cc, c] of before) if (!out.some((o) => o.cc === cc && o.tick === 0)) out.push({ cc, value: c.value, tick: 0 });
+  return out;
+}
 
 function notesIn(t: ArrangedTrack, from: number, length: number): MidiNote[] {
   return t.notes.filter((n) => n.tick >= from && n.tick < from + length).map((n) => ({ ...n, tick: n.tick - from, dur: Math.min(n.dur, from + length - n.tick) }));
@@ -160,18 +212,19 @@ export function buildAlsXml(a: Arrangement, tpl: LiveTemplates, opts: AlsOptions
   const rowNames = [...firstPass.map((s) => sceneLabel(s.scene)), ...Array.from({ length: 8 }, (_, k) => `Pattern ${k + 1}`)];
   const tracksXml = used.map(({ t, i }, k) => {
     const colour = TRACK_COLOURS[i] ?? 0;
+    const allCcs = trackCcs(t, t.channel);
     let clipId = 0;
     const sceneClips = firstPass.map((s) => {
       const notes = keyed(i, notesIn(t, s.tick, s.length));
-      return notes.length ? clipXml(tpl.clip, { id: clipId++, time: 0, name: `${t.name} · ${sceneLabel(s.scene)}`, colour, length: s.length, loop: true, notes, ppq: a.ppq }) : null;
+      return notes.length ? clipXml(tpl.clip, { id: clipId++, time: 0, name: `${t.name} · ${sceneLabel(s.scene)}`, colour, length: s.length, loop: true, notes, ccs: ccsIn(allCcs, s.tick, s.length), ppq: a.ppq }) : null;
     });
     const patternClips = t.patterns.map((p, n) =>
-      p.notes.length ? clipXml(tpl.clip, { id: clipId++, time: 0, name: `${t.name} · ${n + 1}`, colour, length: p.length, loop: true, notes: keyed(i, p.notes), ppq: a.ppq }) : null);
+      p.notes.length ? clipXml(tpl.clip, { id: clipId++, time: 0, name: `${t.name} · ${n + 1}`, colour, length: p.length, loop: true, notes: keyed(i, p.notes), ccs: trackCcs(p, t.channel), ppq: a.ppq }) : null);
     const slots = [...sceneClips, ...patternClips].map((c, n) => (c ? fullSlot(n, c) : emptySlot(n))).join("");
     const freeze = rowNames.map((_, n) => emptySlot(n)).join("");
     const arranged = withArrangement
       ? t.plays.map((pl) => ({ pl, notes: notesIn(t, pl.tick, pl.length) })).filter((x) => x.notes.length).map(({ pl, notes }) =>
-        clipXml(tpl.clip, { id: clipId++, time: pl.tick, name: `${t.name} · ${pl.pattern + 1}`, colour, length: pl.length, loop: false, notes: keyed(i, notes.map((n) => ({ ...n, tick: n.tick + pl.tick }))), ppq: a.ppq })).join("")
+        clipXml(tpl.clip, { id: clipId++, time: pl.tick, name: `${t.name} · ${pl.pattern + 1}`, colour, length: pl.length, loop: false, notes: keyed(i, notes.map((n) => ({ ...n, tick: n.tick + pl.tick }))), ccs: ccsIn(allCcs, pl.tick, pl.length).map((c) => ({ ...c, tick: c.tick + pl.tick })), ppq: a.ppq })).join("")
       : "";
     let x = must(track, /<MidiTrack Id="\d+"/, `<MidiTrack Id="${1000 + k}"`, "the track id");
     x = must(x, /<EffectiveName Value="[^"]*" \/>(\s*)<UserName Value="[^"]*" \/>/, `<EffectiveName Value="${esc(t.name)}" />$1<UserName Value="${esc(t.name)}" />`, "the track name");
@@ -188,7 +241,13 @@ export function buildAlsXml(a: Arrangement, tpl: LiveTemplates, opts: AlsOptions
       x = must(x, /<MonitoringEnum Value="\d" \/>/, `<MonitoringEnum Value="0" />`, "the track's monitoring");
     }
     if (useLive) x = must(x, /<Devices \/>/, `<Devices>${tpl.instruments[TRACK_ROLES[i]!]}</Devices>`, "the track's device chain");
-    return ids.fresh(x);
+    // Clip envelopes point at this track's controller targets, whose ids are final only now.
+    const fresh = ids.fresh(x);
+    return fresh.replace(new RegExp(`${CC_TARGET}(\\d+)__`, "g"), (_m, cc: string) => {
+      const id = new RegExp(`<ControllerTargets\\.${cc} Id="(\\d+)"`).exec(fresh)?.[1];
+      if (!id) throw new Error(`Live template: the MIDI track has no controller target for CC ${cc}`);
+      return id;
+    });
   });
 
   let set = tpl.set.replace(/\t*<(MidiTrack|AudioTrack) Id="\d+"[\s\S]*?<\/\1>\n?/g, "");

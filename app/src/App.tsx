@@ -6,7 +6,7 @@ import type { DrumStepIn, DrumTrackName, NoteStepIn, SyncRate, TrackName } from 
 import type { MenuCommand } from "../electron/api.ts";
 import { CircuitView } from "./CircuitView.tsx";
 import { bridge, call, type DrumPatternData, type Listing, type PatternData, type Scenes, type Summary } from "./desk.ts";
-import { DrumGrid, PianoRoll } from "./EditorView.tsx";
+import { DrumAutomation, DrumGrid, PianoRoll, type LaneEdit } from "./EditorView.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { Library } from "./Library.tsx";
 import { PackView } from "./PackView.tsx";
@@ -146,6 +146,13 @@ export function App() {
       setStatus({ text: `Edited: ${label}` });
     } catch (e) { fail(e); }
   }, []);
+
+  /** A lane edit: the whole lane goes to the service as one undoable change. */
+  const onLaneEdit: LaneEdit = (t, lane, points, label) => {
+    if (!projectId) return;
+    const list = points.flatMap((v, k) => (v === null ? [] : [{ step: Math.floor(k / 6) + 1, micro: (k % 6) + 1, value: v }]));
+    void edit(`${t} pattern ${pattern}, ${label}`, () => call("setAutomation", projectId, t, pattern, lane, list, { clear: true }));
+  };
 
   const onNoteSteps = (steps: NoteStepIn[], label: string): void => {
     if (projectId && isNoteTrack(track)) void edit(label, () => call("setSteps", projectId, track, pattern, steps));
@@ -339,11 +346,12 @@ export function App() {
                     </select>
                   </label>
                 </div>
-                {data.kind === "notes" ? <PianoRoll projectId={projectId} version={version} playStep={playStep(track)} track={track} pattern={pattern} data={data} onNoteSteps={onNoteSteps} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} />
+                {data.kind === "notes" ? <PianoRoll projectId={projectId} version={version} playStep={playStep(track)} track={track} pattern={pattern} data={data} onNoteSteps={onNoteSteps} onLaneEdit={onLaneEdit} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} />
                   : <p className="hint">Choose a Synth or MIDI track for the piano roll.</p>}
                 <h2 className="visually-hidden">Drums</h2>
                 <div style={{ marginTop: "var(--space-xl)" }}>
                   <DrumGrid playSteps={DRUM_NAMES.map(playStep)} pattern={pattern} drums={drums} selected={drumSel} onSelect={(d, s) => setDrumSel({ drum: d, step: s })} onDrumSteps={onDrumSteps} />
+                  <DrumAutomation projectId={projectId} version={version} pattern={pattern} onLaneEdit={onLaneEdit} />
                 </div>
               </>
             )}
