@@ -4,6 +4,8 @@
 // the same an octave up; in Chromatic, a piano (naturals below, sharps above).
 // Drum tracks: all 32 steps.
 import type { CSSProperties, KeyboardEvent } from "react";
+import { Knob } from "./ui/Knob.tsx";
+import { useServiceData } from "./ui/useServiceData.ts";
 import type { NoteStepIn, TrackName } from "@circuit-desk/core-service";
 import type { DrumPatternData, NotePatternData, PatternData, Summary } from "./desk.ts";
 import { SCALE_NAMES, type ScaleSetting } from "@circuit-desk/ncs";
@@ -13,6 +15,10 @@ import { useRoving } from "./useRoving.ts";
 import { usePlayStep, usePlayingPattern } from "./playheads.ts";
 
 export interface CircuitProps {
+  projectId: string;
+  version: number;
+  /** Turn a macro knob of Synth 1 or 2: one undoable patch edit. */
+  onMacro: (synth: 1 | 2, k: number, v: number) => void;
   summary: Summary;
   /** The project's scale; null until settings load (then a piano layout). */
   scale: ScaleSetting | null;
@@ -57,6 +63,25 @@ function RadioRow<T>({ label, items, value, onChange, render, className, itemCla
   );
 }
 
+/**
+ * The eight macro knobs of Synth 1 or 2's patch, at their stored positions. Turning one is one
+ * undoable patch edit (the knob's resting position); moves over time are automation lanes 1–8 in the
+ * Editor. MIDI and drum tracks have no patch here, so the knobs show as unavailable.
+ */
+function MacroKnobs({ projectId, version, track, onMacro }: { projectId: string; version: number; track: TrackName; onMacro: (synth: 1 | 2, k: number, v: number) => void }) {
+  const synth = track === "Synth 1" ? 1 : track === "Synth 2" ? 2 : null;
+  const patch = useServiceData(synth ? "getPatch" : null, [projectId, synth ?? 1], [projectId, synth, version]).data;
+  return (
+    <div className="knobs" role="group" aria-label={synth ? `Synth ${synth} macro knobs` : `Macro knobs (only Synth 1 and 2 have them)`}>
+      {Array.from({ length: 8 }, (_, k) => (
+        <Knob key={k} label={`Macro ${k + 1}`} value={patch?.values[`macro${k + 1}.position`] ?? 0} disabled={!synth || !patch}
+          tip={synth ? `Macro ${k + 1} of Synth ${synth}'s patch: where the knob rests (an undoable patch edit). Arrows step it; Shift steps by 10. Its moves over time are automation lane ${k + 1} in the Editor.` : "Macro knobs belong to Synth 1 and 2's patches."}
+          onCommit={(v) => { if (synth) onMacro(synth, k, v); }} />
+      ))}
+    </div>
+  );
+}
+
 export function CircuitView(p: CircuitProps) {
   // The playhead comes from its own store (playheads.ts), so a step change redraws this view only.
   const playingPattern = usePlayingPattern(TRACK_NAMES.indexOf(p.track));
@@ -73,10 +98,7 @@ export function CircuitView(p: CircuitProps) {
           <button type="button" className="btn btn-small" onClick={() => p.onPlayPattern(p.pattern)} data-tip="Play this pattern number on all eight tracks at once, looping (sets the play menu to One pattern).">▶ Play pattern {p.pattern} on all tracks</button>
         </div>
         {p.data.kind === "notes" ? <NoteGrid {...p} data={p.data} /> : <DrumPads {...p} data={p.data} />}
-        <div className="knobs" aria-label="Macro knobs (read-only: synth patches are not decoded yet)" role="group"
-          data-tip="The eight macro knobs of the track's patch. Shown only for now: macro moves can be drawn as automation in the Editor's lanes 1–8.">
-          {Array.from({ length: 8 }, (_, k) => <div key={k} className="knob" aria-disabled="true"><span aria-hidden="true" /><span>Macro {k + 1}</span></div>)}
-        </div>
+        <MacroKnobs projectId={p.projectId} version={p.version} track={p.track} onMacro={p.onMacro} />
       </div>
     </section>
   );

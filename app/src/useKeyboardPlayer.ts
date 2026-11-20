@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NovaInstrument } from "@circuit-desk/engine";
 import { initPatchBytes as initPatchBytesForPreview } from "@circuit-desk/patch";
 import { appOutput, audioContext, loadNovaWorklet } from "./audio.ts";
-import { isTextField } from "./storage.ts";
+import { isFormControl } from "./storage.ts";
 import { logEvent } from "./capture.ts";
 import { DEFAULT_OCTAVE, KEY_NOTES, MAX_OCTAVE, MIN_OCTAVE, keyCode, keyNote } from "./keymap.ts";
 
@@ -77,7 +77,7 @@ export function useKeyboardPlayer(sound: KeySound | null, output: () => MIDIOutp
   useEffect(() => {
     if (!on) { allOff(); return; }
     const down = (e: KeyboardEvent): void => {
-      if (e.metaKey || e.ctrlKey || e.altKey || isTextField(e.target)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || isFormControl(e.target)) return;
       const take = (): void => { e.preventDefault(); e.stopPropagation(); };
       const code = keyCode(e);
       if (code === "Escape") { take(); setOn(false); return; }

@@ -1,7 +1,7 @@
 // The window: library on the left, the current view in the middle, the inspector on the right.
 // All project state lives in the main process; this keeps only what is on screen and reloads it
 // after every edit. Data, commands and menu wiring live in their own hooks.
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Direction, DrumStepIn, DrumTrackName, NoteStepIn, SyncRate, TrackName } from "@circuit-desk/core-service";
 import type { SettingsEdit } from "@circuit-desk/ncs";
 import { CircuitView } from "./CircuitView.tsx";
@@ -27,7 +27,10 @@ import { useMenuCommands } from "./useMenuCommands.ts";
 import { usePlayer } from "./usePlayer.ts";
 import { useProjectCommands } from "./useProjectCommands.ts";
 import { useProjectData } from "./useProjectData.ts";
-import { nextView, type View } from "./views.ts";
+import { PATTERN_VIEWS, VIEWS, stepView, type View } from "./views.ts";
+import { DrumSoundsView } from "./DrumSoundsView.tsx";
+import type { SoundPage } from "./SoundTabs.tsx";
+import { cycleRegion } from "./regions.ts";
 
 export function App() {
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -41,9 +44,11 @@ export function App() {
   const [currentNote, setCurrentNote] = useState(60);
   const [packChoice, setPackChoice] = useState<PackPatchChoice | null>(null);
   const [version, setVersion] = useState(0);
+  /** Sounds view: the drums page instead of the current synth's patch. */
+  const [drumsPage, setDrumsPage] = useState(false);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
-  const { status, setStatus, fail } = useStatus("Open a project from the library.");
+  const { status, fading, faded, setStatus, fail } = useStatus("Open a project from the library.");
   const failLibrary = useCallback((e: unknown) => setStatus({ text: `Library: ${(e as Error).message}`, error: true }), [setStatus]);
   const { library, summary, scenes, settings, data, drums } = useProjectData(projectId, track, pattern, version, setProjectId, fail, failLibrary);
   // Note names on screen are the pitches stored notes sound at: stored + the scale root.
@@ -94,17 +99,25 @@ export function App() {
     if (projectId) void edit(`${track} chain ${first}–${last}`, () => call("setChain", projectId, track, first, last));
   };
   const onPatchEdit = (changes: Record<string, number>, name: string | undefined, label: string): void => {
-    if (projectId) void edit(`${label} (patch fields are partial: saved to copies)`, () => call("setPatchParams", projectId, patchSynth, changes, name));
+    if (projectId) void edit(label, () => call("setPatchParams", projectId, patchSynth, changes, name));
+  };
+  const onMacro = (synth: 1 | 2, k: number, v: number): void => {
+    if (projectId) void edit(`Synth ${synth} macro ${k + 1} at ${v}`, () => call("setPatchParams", projectId, synth, { [`macro${k + 1}.position`]: v }));
   };
 
   const chooseTrack = (t: TrackName): void => { setTrack(t); setStep(null); setPackChoice(null); };
+  const chooseSoundPage = (s: SoundPage): void => {
+    if (s === "drums") { setDrumsPage(true); return; }
+    setDrumsPage(false);
+    chooseTrack(s === 1 ? "Synth 1" : "Synth 2");
+  };
   const choosePattern = (n: number): void => { setPattern(n); setStep(null); setDrumSel(null); };
   const choosePackPatch = (p: PackPatchChoice): void => { setPackChoice(p); window.setTimeout(() => void keys.audition(), 0); };
   /** Copies a pack patch into Synth 1 or 2 (one undoable edit), then opens it in the Patch view. */
   const loadPackPatch = (c: PackPatchChoice, synth: 1 | 2): void => {
     if (!projectId) return;
     void edit(`loaded "${c.name}" from bank ${c.bank + 1} into Synth ${synth}`, () => call("loadPackPatch", projectId, synth, c.bank, c.record))
-      .then((ok) => { if (ok) { chooseTrack(synth === 1 ? "Synth 1" : "Synth 2"); setView("patch"); } });
+      .then((ok) => { if (ok) { chooseSoundPage(synth); setView("sounds"); } });
   };
 
   useMenuCommands({
@@ -116,7 +129,10 @@ export function App() {
     "export-als": () => void cmd.exportTo("als"),
     "export-audio": () => void cmd.exportAudio(),
     "export-syx": () => void cmd.exportSyx(),
-    "toggle-view": () => setView(nextView),
+    ...Object.fromEntries(VIEWS.map((v, i) => [`view-${i + 1}`, () => setView(v.id)])),
+    "next-view": () => setView((v) => stepView(v, 1)),
+    "prev-view": () => setView((v) => stepView(v, -1)),
+    "toggle-keys": () => { if (keySound) keys.setOn(!keys.on); },
     // Claude edited or opened a project (or chose the firmware) through the MCP link.
     changed: () => { bump(); fw.read(); void call("openProjects").then((o) => setProjectId((cur) => cur ?? o[0]?.id ?? null), fail); },
     play: () => { if (player.playing) player.stop(); else void player.play(); },
@@ -124,6 +140,13 @@ export function App() {
   });
 
   const current = library.find((l) => l.path === summary?.path)?.path ?? summary?.path ?? null;
+  const showInspector = PATTERN_VIEWS.has(view);
+  // F6 / Shift+F6 move between the window's regions: toolbar, library, workspace, inspector.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => { if (e.key === "F6") { e.preventDefault(); cycleRegion(e.shiftKey ? -1 : 1); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const inspectorTrack: TrackName = view === "editor" && drumSel ? drumSel.drum : track;
   const inspectorData = view === "editor" && drumSel ? drums[DRUM_NAMES.indexOf(drumSel.drum)] ?? data : data;
   const inspectorStep = view === "editor" && drumSel ? drumSel.step : step;
@@ -133,7 +156,9 @@ export function App() {
     switch (view) {
       case "mixer": return settings ? <MixerView settings={settings} muted={player.muted} solo={player.solo} onMute={player.toggleMute} onSolo={player.toggleSolo} onEdit={onSettingsEdit} /> : <Loading />;
       case "project": return settings && projectId ? <ProjectView projectId={projectId} version={version} settings={settings} onEdit={onSettingsEdit} /> : <Loading />;
-      case "patch": return projectId && <PatchView projectId={projectId} version={version} synth={patchSynth} onSynth={(s) => chooseTrack(s === 1 ? "Synth 1" : "Synth 2")} onEdit={onPatchEdit} onPlay={() => void keys.audition()} onExport={() => void cmd.exportSyx()} />;
+      case "sounds": return projectId && (drumsPage
+        ? (settings ? <DrumSoundsView projectId={projectId} version={version} settings={settings} onEdit={onSettingsEdit} onPage={chooseSoundPage} /> : <Loading />)
+        : <PatchView projectId={projectId} version={version} synth={patchSynth} onPage={chooseSoundPage} onEdit={onPatchEdit} onPlay={() => void keys.audition()} onExport={() => void cmd.exportSyx()} />);
       case "pack": return projectId && <PackView projectId={projectId} version={version} firmware={fw.firmware?.current ?? null} chosen={packChoice} onPatch={choosePackPatch} onLoad={loadPackPatch} />;
       case "scenes": return scenes ? (
         <ScenesView scenes={scenes} playing={player.playing && player.playFrom.kind === "scene" ? player.playFrom.n : null} onPlayScene={(n) => player.choosePlayFrom({ kind: "scene", n }, true)}
@@ -141,7 +166,7 @@ export function App() {
           onScene={(n, chains, label) => { if (projectId) void edit(label, () => call("setScene", projectId, n, chains)); }} />
       ) : <Loading />;
       case "circuit": return (
-        <CircuitView scale={settings?.scale ?? null} onPlayPattern={(n) => player.choosePlayFrom({ kind: "pattern", n }, true)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
+        <CircuitView projectId={projectId!} version={version} onMacro={onMacro} scale={settings?.scale ?? null} onPlayPattern={(n) => player.choosePlayFrom({ kind: "pattern", n }, true)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
           onTrack={chooseTrack} onPattern={choosePattern} onSelectStep={setStep} onPage={setPage} onOctave={setOctave} onCurrentNote={setCurrentNote}
           onNoteSteps={onNoteSteps} onDrumStep={(s, velocity, label) => { if (isDrum(track)) onDrumSteps(track, [{ step: s, velocity }], label); }} />
       );
@@ -156,18 +181,18 @@ export function App() {
   return (
     <div className="app">
       <Toolbar summary={summary} projectId={projectId} scenes={scenes} view={view} onView={setView} player={player} keys={keys} keySound={keySound}
-        firmware={fw.firmware} onFirmware={fw.choose} onOpen={() => void pick()} onUndo={() => void cmd.undo()} onRedo={() => void cmd.undo(true)}
-        onSaveCopy={() => void cmd.saveCopy()} onExport={(k) => void cmd.exportTo(k)} />
-      <div className="main">
-        <Library items={library} current={current} onOpen={(p) => void open(p)} />
-        <main className="workspace" aria-label={`${view[0]!.toUpperCase()}${view.slice(1)} view`}>{workspace()}</main>
-        {inspectorData ? (
+        firmware={fw.firmware} onFirmware={fw.choose} onUndo={() => void cmd.undo()} onRedo={() => void cmd.undo(true)} patchSynth={patchSynth}
+        onExport={(k) => void (k === "audio" ? cmd.exportAudio() : k === "syx" ? cmd.exportSyx() : cmd.exportTo(k))} />
+      <div className="main" data-inspector={showInspector}>
+        <Library items={library} current={current} edited={!!summary?.edits} onOpen={(p) => void open(p)} />
+        <main className="workspace" id="workspace" tabIndex={-1} aria-label={`${VIEWS.find((v) => v.id === view)!.label} view`}>{workspace()}</main>
+        {!showInspector ? null : inspectorData ? (
           <Inspector track={inspectorTrack} pattern={pattern} data={inspectorData} step={inspectorStep} scenes={scenes} currentNote={currentNote}
             onNoteSteps={onNoteSteps} onDrumSteps={(steps, label) => { if (isDrum(inspectorTrack)) onDrumSteps(inspectorTrack, steps, label); }}
             onSettings={(s: { firstStep?: number; lastStep?: number; syncRate?: SyncRate; direction?: Direction }) => { if (projectId) void edit("pattern settings", () => call("setPatternSettings", projectId, inspectorTrack, pattern, s)); }} onChain={onChain} />
-        ) : <aside className="panel inspector" aria-label="Inspector" />}
+        ) : <aside className="panel inspector" id="inspector" aria-label="Inspector" />}
       </div>
-      <StatusBar status={status} player={player} keys={keys} keySound={keySound} onCapture={() => void cmd.capture()} />
+      <StatusBar status={status} fading={fading} onFaded={faded} player={player} keys={keys} keySound={keySound} />
       <Tooltips />
     </div>
   );

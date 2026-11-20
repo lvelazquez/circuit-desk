@@ -4,6 +4,7 @@
 // `partial` until a device dump confirms the layout, so edits go to copies (Save a copy) and .syx.
 import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { listMove } from "./model.ts";
+import { SoundTabs, type SoundPage } from "./SoundTabs.tsx";
 import { ErrorState, Loading } from "./ui/States.tsx";
 import { useServiceData } from "./ui/useServiceData.ts";
 import { TextField, printableAscii } from "./ui/TextField.tsx";
@@ -30,7 +31,7 @@ export interface PatchViewProps {
   projectId: string;
   version: number;
   synth: 1 | 2;
-  onSynth: (s: 1 | 2) => void;
+  onPage: (p: SoundPage) => void;
   /** One undoable edit: changed values by id, and/or a new name. */
   onEdit: (changes: Record<string, number>, name: string | undefined, label: string) => void;
   onPlay: () => void;
@@ -96,22 +97,19 @@ export function PatchView(p: PatchViewProps) {
   return (
     <section aria-label="Patch" className="patch-view" style={trackStyle(p.synth === 1 ? "Synth 1" : "Synth 2")}>
       <div className="row patch-head">
-        <div role="group" aria-label="Synth" className="row">
-          {([1, 2] as const).map((s) => (
-            <button key={s} type="button" className="btn" aria-pressed={p.synth === s} onClick={() => p.onSynth(s)}
-              data-tip={`Edit Synth ${s}'s patch (stored in the project).`}>Synth {s}</button>
-          ))}
-        </div>
+        <SoundTabs page={p.synth} onPage={p.onPage} />
         <TextField label="Name" value={patch.name} maxLength={16} valid={printableAscii} onCommit={(name) => p.onEdit({}, name, `Synth ${p.synth} patch name "${name}"`)}
           tip="The patch name: up to 16 letters, digits and plain punctuation (ASCII). Enter saves it as an edit; Esc cancels." />
         {control("category")}
         <button type="button" className="btn" onClick={p.onPlay} data-tip="Play a short C3 with this patch on the built-in preview. Turn on Keys to play it from the computer keyboard.">▶ Play C3</button>
         <button type="button" className="btn" onClick={p.onExport} data-tip="Write this patch as a .syx file (Novation's portable patch format) to the project's exports folder. Nothing is sent to a device.">Export .syx</button>
       </div>
-      <p className="hint" role="note">
-        {trusted ? "Patch fields are verified on a device." : "Patch fields are partial: the layout is Novation's documented format, checked on all 1,050 patches of the card copy; a device check is pending, so edits go to saved copies and .syx files."}
-        {patch.problems.length > 0 && ` This patch stores ${patch.problems.length} value${patch.problems.length > 1 ? "s" : ""} outside the guide's ranges; they are kept unless you change them.`}
-      </p>
+      {(!trusted || patch.problems.length > 0) && (
+        <p className="hint" role="note">
+          {!trusted && <span className="badge" data-tip="The layout is Novation's documented format, checked on all 1,050 patches of the card copy. A device check is pending, so edits go to saved copies and .syx files only.">Unverified layout</span>}
+          {patch.problems.length > 0 && ` This patch stores ${patch.problems.length} value${patch.problems.length > 1 ? "s" : ""} outside the guide's ranges; they are kept unless you change them.`}
+        </p>
+      )}
 
       <div role="tablist" aria-label="Patch pages" className="patch-tabs">
         {PAGES.map((s, i) => (

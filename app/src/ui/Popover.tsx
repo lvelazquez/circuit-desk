@@ -23,7 +23,13 @@ export function Popover({ label, tip, align = "start", children }: {
   const close = (refocus = true): void => {
     if (!open || leaving) return;
     const el = panel.current;
-    const finish = (): void => { setLeaving(false); setOpen(false); if (refocus) button.current?.focus(); };
+    // Focus goes back to the button only if it is still in the popover (or was dropped to the page):
+    // focus the user moved elsewhere during the exit stays there.
+    const finish = (): void => {
+      const active = document.activeElement;
+      setLeaving(false); setOpen(false);
+      if (refocus && (!active || active === document.body || wrap.current?.contains(active))) button.current?.focus();
+    };
     // No exit animation to wait for (reduced motion, or not rendered): close now.
     if (!el || parseFloat(getComputedStyle(el).animationDuration) === 0) { finish(); return; }
     setLeaving(true);

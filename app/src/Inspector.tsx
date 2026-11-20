@@ -3,6 +3,7 @@ import type { Direction, DrumStepIn, NoteOut, NoteStepIn, SyncRate, TrackName } 
 import type { PatternData, Scenes } from "./desk.ts";
 import { DEFAULT_NOTE, getNoteRoot, MAX_NOTES, noteName, stepMap } from "./model.ts";
 import { NumberField } from "./NumberField.tsx";
+import { trackStyle } from "./tracks.ts";
 
 const SYNC_RATES: readonly SyncRate[] = ["1/32T", "1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4"];
 const DIRECTIONS: readonly { value: Direction; label: string }[] = [
@@ -25,7 +26,10 @@ export interface InspectorProps {
 export function Inspector(p: InspectorProps) {
   const chain = p.scenes?.currentChains[p.track];
   return (
-    <aside className="panel inspector" aria-label="Inspector">
+    <aside className="panel inspector" id="inspector" aria-labelledby="inspector-title">
+      <p className="inspector-title" id="inspector-title" style={trackStyle(p.track)}>
+        <span className="visually-hidden">Inspector: </span>{p.track} · pattern {p.pattern}{p.step !== null ? ` · step ${p.step}` : ""}
+      </p>
       <h2>Step</h2>
       {p.step === null ? <p className="hint">Select a step.</p> : p.data.kind === "notes" ? <NoteStep {...p} step={p.step} /> : <DrumStep {...p} step={p.step} />}
 

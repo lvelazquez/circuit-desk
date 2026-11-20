@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dispatch, isInside, ProjectService, serveSocket } from "@circuit-desk/core-service";
-import type { DeskResult, MenuCommand } from "./api.ts";
+import { MENU_VIEWS, type DeskResult, type MenuCommand } from "./api.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.join(here, "..", "dist");
@@ -79,8 +79,11 @@ function menu(): void {
     { label: "File", submenu: [item("Open Project…", "CmdOrCtrl+O", "open"), item("Save a Copy", "CmdOrCtrl+S", "save-copy"), { type: "separator" }, item("Export MIDI", "CmdOrCtrl+E", "export-midi"), item("Export Live Set", "CmdOrCtrl+Shift+E", "export-als"), item("Export Preview Audio", "CmdOrCtrl+Alt+E", "export-audio"), item("Export Synth Patch as .syx", "CmdOrCtrl+Alt+P", "export-syx"), { type: "separator" }, { role: "close" }] },
     // Undo and redo go to the window, which undoes text in a focused field or the project's last edit.
     { label: "Edit", submenu: [item("Undo", "CmdOrCtrl+Z", "undo"), item("Redo", "Shift+CmdOrCtrl+Z", "redo"), { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
-    { label: "Transport", submenu: [item("Play / Stop", "CmdOrCtrl+Return", "play"), { type: "separator" }, item("Capture Last 10 Seconds (Sound Report)", "Shift+CmdOrCtrl+R", "capture")] },
-    { label: "View", submenu: [item("Next View (Circuit, Editor, Scenes, Mixer, Project, Pack)", "CmdOrCtrl+1", "toggle-view"), { type: "separator" }, { role: "reload" }, { role: "toggleDevTools" }, { role: "togglefullscreen" }] },
+    { label: "Transport", submenu: [item("Play / Stop", "CmdOrCtrl+Return", "play"), item("Play from Computer Keyboard", "CmdOrCtrl+K", "toggle-keys"), { type: "separator" }, item("Capture Last 10 Seconds (Sound Report)", "Shift+CmdOrCtrl+R", "capture")] },
+    { label: "View", submenu: [
+      ...MENU_VIEWS.map((v, i) => item(v, `CmdOrCtrl+${i + 1}`, `view-${(i + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7}`)),
+      { type: "separator" }, item("Next View", "Ctrl+Tab", "next-view"), item("Previous View", "Ctrl+Shift+Tab", "prev-view"),
+      { type: "separator" }, { role: "reload" }, { role: "toggleDevTools" }, { role: "togglefullscreen" }] },
     { role: "windowMenu" },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

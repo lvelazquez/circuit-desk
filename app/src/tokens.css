@@ -50,6 +50,9 @@
   --size-pad: 56px;
   --size-sample-pad: 96px;
   --size-knob: 44px;
+  /* The macro knob's arc: where it starts (7 o'clock) and how far it sweeps to 127 (5 o'clock). */
+  --angle-knob-start: -135deg;
+  --angle-knob-sweep: 270deg;
   --size-roll-step: 26px;
   --size-roll-row: 16px;
   --size-roll-keys: 52px;
