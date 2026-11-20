@@ -1,0 +1,96 @@
+--- a/tools/dsptool/dsptool.cpp	2026-11-19 22:39:47
++++ b/tools/dsptool/dsptool.cpp	2026-11-19 22:42:55
+@@ -33,6 +33,36 @@
+     return 0;
+ }
+ 
++#include <unordered_map>
++#include <cstdint>
++
++// ---- core-1 stub (Circuit Desk): the stock core-1 program is a copy service. Core 0 appends source
++// addresses to a list at X:$30002.., publishes the end pointer at X:$30000, and waits for core 1 to
++// overwrite each entry with the word at that address in core 1's external X memory. We do the same
++// lazily: the first time core 0 reads an entry it wrote, the entry is replaced by the word its address
++// points to. (A PC hook cannot work: the emulator runs a whole DO loop in one step.) External words come
++// from `C1LOAD addr file` (raw 3-byte big-endian words); addresses not loaded read 0 and are counted.
++struct C1Stub {
++    bool on = false, busy = false; uint64_t served = 0, missed = 0;
++    std::unordered_map<TWord, TWord> ext; FILE* log = nullptr;
++};
++static C1Stub g_c1;
++static FILE* g_audio = nullptr;
++static Memory* g_c1Mem = nullptr;
++static std::vector<uint8_t> g_c1Served(0x1000, 0);
++static void c1GetHook(TWord off) {
++    if (!g_c1.on || g_c1.busy) return;
++    const size_t i = off - 0x30000; if (g_c1Served[i]) return;
++    g_c1.busy = true;
++    const TWord a = g_c1Mem->get(MemArea_X, off) & 0xffffff; TWord v = 0;
++    auto it = g_c1.ext.find(a);
++    if (it != g_c1.ext.end()) v = it->second; else ++g_c1.missed;
++    if (g_c1.log) fprintf(g_c1.log, "%06x %06x\n", a, v);
++    g_c1Mem->set(MemArea_X, off, v); g_c1Served[i] = 1; ++g_c1.served;
++    g_c1.busy = false;
++}
++static void c1SetHook(TWord off) { if (!g_c1.busy) g_c1Served[off - 0x30000] = 0; }
++
+ static TWord g_curPC = 0; static FILE* g_watchOut = nullptr; static uint64_t g_watchMax = 200000;
+ static void watchCb(EMemArea a, TWord addr, bool w, TWord v) {
+     if (!g_watchOut || !g_watchMax) return; --g_watchMax;
+@@ -45,12 +75,12 @@
+ //  RUN   DUMPX addr n   DUMPY addr n  WATCHX lo hi (report writes)  -- watch via compare snapshots
+ static int cmdRun(const char* script) {
+     PeripheralsNop px, py;
+-    static DefaultMemoryValidator mv; Memory mem(mv, 0x80000);
++    static DefaultMemoryValidator mv; Memory mem(mv, 0x200000);   // Circuit Desk: core 0 also uses external memory above $80000 (delay and reverb buffers)
+     DSP dsp(mem, &px, &py);
+     std::ifstream f(script); std::string line; TWord stop = 0xffffff; uint64_t maxi = 10000000;
+     std::string histFile; std::map<TWord, uint64_t> hist;   // HIST file: per-PC execution counts of all RUNs
+-    std::string traceFile; std::vector<uint8_t> trX(0x80000), trY(0x80000);   // TRACE file: X/Y access bits of all RUNs
+-    std::vector<uint8_t> wX(0x80000), wY(0x80000); bool watching = false;
++    std::string traceFile; std::vector<uint8_t> trX(0x200000), trY(0x200000);   // TRACE file: X/Y access bits of all RUNs
++    std::vector<uint8_t> wX(0x200000), wY(0x200000); bool watching = false;
+     bool spTrack = false; TWord spMax = 0, spMaxPC = 0;                         // SPMAX: deepest system stack in RUNs     // WATCHFILE f ; WATCH X|Y addr [n]: log PC of accesses
+     while (std::getline(f, line)) {
+         std::istringstream s(line); std::string c; s >> c;
+@@ -75,11 +105,30 @@
+             TWord addr = strtoul(as.c_str(), nullptr, 16); auto& v = sp == "X" ? wX : wY;
+             for (TWord i = 0; i < n; ++i) v[addr + i] = 1; watching = true;
+         }
++        else if (c == "C1") { std::string m; s >> m; g_c1.on = (m == "ON"); g_c1Mem = &mem; g_memGetHook = c1GetHook; g_memSetHook = c1SetHook; }
++        else if (c == "C1LOAD") {   // C1LOAD addr file : raw 3-byte BE words into core 1's external X
++            std::string fn, as; s >> as >> fn; TWord addr = strtoul(as.c_str(), nullptr, 16);
++            std::ifstream b(fn, std::ios::binary); std::vector<unsigned char> d((std::istreambuf_iterator<char>(b)), {});
++            for (size_t i = 0; i + 2 < d.size(); i += 3) g_c1.ext[addr++] = (d[i] << 16) | (d[i+1] << 8) | d[i+2];
++        }
++        else if (c == "AUDIO") { std::string fn; s >> fn; if (g_audio) fclose(g_audio); g_audio = fopen(fn.c_str(), "wb"); }
++        else if (c == "EMIT") {   // append the block core 0 just finished: Y ring at $1000 (1024 words), write pointer Y:$FFD, 64 words a block
++            if (g_audio) {
++                const TWord p = mem.get(MemArea_Y, 0xffd) & 0xffffff;
++                for (TWord k = 0; k < 64; ++k) {
++                    const TWord a = 0x1000 + ((p - 0x1000 - 64 + k) & 0x3ff); int32_t v = (int32_t)(mem.get(MemArea_Y, a) << 8) >> 8;
++                    fwrite(&v, 4, 1, g_audio);
++                }
++            }
++        }
++        else if (c == "C1LOG") { std::string fn; s >> fn; g_c1.log = fopen(fn.c_str(), "w"); }
++        else if (c == "C1STAT") { printf("C1 served %llu missed %llu\n", (unsigned long long)g_c1.served, (unsigned long long)g_c1.missed); }
+         else if (c == "RUN") {
+             uint64_t n = 0; const uint64_t i0 = dsp.getInstructionCounter(), c0 = dsp.getCycles();
+             if (!traceFile.empty()) { g_memTrace[MemArea_X] = trX.data(); g_memTrace[MemArea_Y] = trY.data(); }
+             if (watching) { g_memWatch[MemArea_X] = wX.data(); g_memWatch[MemArea_Y] = wY.data(); g_memWatchCb = watchCb; }
+-            while (dsp.getPC().toWord() != stop && n < maxi) { g_curPC = dsp.getPC().toWord(); if (!histFile.empty()) ++hist[g_curPC]; dsp.execInterpreter(); ++n;
++            while (dsp.getPC().toWord() != stop && n < maxi) { g_curPC = dsp.getPC().toWord(); if (!histFile.empty()) ++hist[g_curPC];
++                dsp.execInterpreter(); ++n;
+                 if (spTrack && dsp.ssIndex() > spMax) { spMax = dsp.ssIndex(); spMaxPC = g_curPC; } }
+             g_memWatch[MemArea_X] = g_memWatch[MemArea_Y] = nullptr;
+             g_memTrace[MemArea_X] = g_memTrace[MemArea_Y] = nullptr;
+@@ -92,6 +141,8 @@
+             printf("\n");
+         }
+     }
++    if (g_audio) { fclose(g_audio); g_audio = nullptr; }
++    if (g_c1.log) { fclose(g_c1.log); g_c1.log = nullptr; }
+     if (g_watchOut) fclose(g_watchOut);
+     if (spTrack) printf("SPMAX %u pc=%06x\n", spMax, spMaxPC);
+     if (!traceFile.empty()) { FILE* t = fopen(traceFile.c_str(), "wb"); fwrite(trX.data(), 1, trX.size(), t); fwrite(trY.data(), 1, trY.size(), t); fclose(t); }

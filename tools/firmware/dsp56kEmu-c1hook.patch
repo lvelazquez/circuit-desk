@@ -1,0 +1,39 @@
+--- a/source/dsp56kEmu/memory.cpp	2026-11-19 22:41:35
++++ b/source/dsp56kEmu/memory.cpp	2026-11-19 22:41:35
+@@ -20,6 +20,8 @@
+ 	uint8_t* g_memTrace[MemArea_COUNT] = {nullptr, nullptr, nullptr};
+ 	uint8_t* g_memWatch[MemArea_COUNT] = {nullptr, nullptr, nullptr};
+ 	void (*g_memWatchCb)(EMemArea, TWord, bool, TWord) = nullptr;
++	void (*g_memGetHook)(TWord) = nullptr;
++	void (*g_memSetHook)(TWord) = nullptr;
+ 
+ 	Memory::Memory(const IMemoryValidator& _memoryMap, TWord _memSize/* = 0xc00000*/, TWord* _externalBuffer/* = nullptr*/)
+ 		: m_memoryMap(_memoryMap)
+@@ -157,6 +159,7 @@
+ 		if (_offset < size(_area))		// Fix the amazing "write to wrong address" bug
+ 		{
+ 			m_mem[_area][_offset] = _value & 0x00ffffff;
++			if (g_memSetHook && _area == MemArea_X && _offset >= 0x30000 && _offset < 0x31000) g_memSetHook(_offset);
+ 			if (g_memTrace[_area]) g_memTrace[_area][_offset] |= 2;
+ 			if (g_memWatch[_area] && g_memWatch[_area][_offset] && g_memWatchCb) g_memWatchCb(_area, _offset, true, _value);
+ 		}
+@@ -191,6 +194,7 @@
+ 			return 0;
+ 		}
+ 
++		if (g_memGetHook && _area == MemArea_X && _offset >= 0x30002 && _offset < 0x31000) g_memGetHook(_offset);
+ 		const auto res = m_mem[_area][_offset];
+ 		if (g_memTrace[_area]) g_memTrace[_area][_offset] |= 1;
+ 		if (g_memWatch[_area] && g_memWatch[_area][_offset] && g_memWatchCb) g_memWatchCb(_area, _offset, false, res);
+--- a/source/dsp56kEmu/memory.h	2026-11-19 22:41:35
++++ b/source/dsp56kEmu/memory.h	2026-11-19 22:41:35
+@@ -35,6 +35,9 @@
+ 	// watch (dsptool): called on every access to an address whose g_memWatch byte is set
+ 	extern uint8_t* g_memWatch[MemArea_COUNT];
+ 	extern void (*g_memWatchCb)(EMemArea, TWord, bool, TWord);
++	// Circuit Desk core-1 stub: called before a read / after a write of X list entries (see tools/firmware)
++	extern void (*g_memGetHook)(TWord);
++	extern void (*g_memSetHook)(TWord);
+ 
+ 	class IMemoryValidator
+ 	{

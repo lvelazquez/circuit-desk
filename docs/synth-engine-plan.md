@@ -37,7 +37,12 @@
 - **CPU:** 12 voices use under 7 % of one core.
 - **Sound reports:** Transport › Capture Last 10 Seconds (⇧⌘R) saves audio, events and patches to `Exports/Reports/`. `tools/replay-report.ts` replays a report offline and locates jumps.
 
-**Next:** E0.4 (macro formula from the ARM routine), then LFOs 1–2, then E0.6 curves.
+**Update 2026-11-19 (later):**
+- **E0.4 is done.** The macro formula was read from the stock ARM routine (`0x08035F84`) and is in `packages/patch/src/macros.ts`; macros are on in the voice. Stored destination 0 means none and 1–70 select destinations 0–69, so the earlier code was off by one.
+- **E0.6 has started.** A full parameter sweep through the stock ARM code ran (298 Synth 1 parameters). Results and method: [`firmware-oracle.md`](firmware-oracle.md).
+- **The core-1 spike (D-6) is partly built.** The DSP emulator runs here and a core-1 stand-in serves core 0's table requests, but the audio output is still silent; the blocker and next steps are in `firmware-oracle.md`.
+
+**Next:** find why the oracle is silent (one to two days, time-boxed), then LFOs 1–2, then convert the swept DSP words to hertz and seconds.
 
 **Rule for this plan:** no device or card writes. Device reads (SysEx dump requests, the `fwid` query) need approval at the time. Firmware-derived data stays local and is never committed (§5).
 
