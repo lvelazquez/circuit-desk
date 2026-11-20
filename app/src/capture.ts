@@ -30,7 +30,7 @@ export function logEvent(e: LoggedEvent): void {
 let nextId = 1;
 
 /** The tap's last TAP_SECONDS of audio. */
-export async function captureAudio(): Promise<TapDump> {
+async function captureAudio(): Promise<TapDump> {
   const node = await appOutput();
   const id = nextId++;
   return new Promise((resolve, reject) => {

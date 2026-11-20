@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gridMove, keyboardNote, moveNote, noteName, rollRange, stepMap, toggleNote, toggleStep, updateNote } from "./model.ts";
+import { gridMove, keyboardNote, listMove, moveNote, noteName, rollRange, stepMap, toggleNote, toggleStep, updateNote } from "./model.ts";
 
 const notes = stepMap([{ step: 1, probability: 7, notes: [{ note: 60, velocity: 100, gate: 6, micro: 0 }] }]);
 
@@ -52,5 +52,22 @@ describe("keyboard pads", () => {
     const chroma = { root: 0, type: 15 };
     expect(Array.from({ length: 8 }, (_, c) => keyboardNote(chroma, 48, c))).toEqual([null, 49, 51, null, 54, 56, 58, null]);
     expect(keyboardNote(chroma, 48, 15)).toBe(60);
+  });
+});
+
+describe("listMove", () => {
+  it("steps and wraps round, both ways", () => {
+    expect(listMove(0, "ArrowRight", 4)).toBe(1);
+    expect(listMove(3, "ArrowRight", 4)).toBe(0);
+    expect(listMove(0, "ArrowLeft", 4)).toBe(3);
+    expect(listMove(2, "ArrowDown", 4)).toBe(3);
+  });
+  it("goes to the ends with Home and End", () => {
+    expect(listMove(2, "Home", 4)).toBe(0);
+    expect(listMove(1, "End", 4)).toBe(3);
+  });
+  it("leaves Up and Down alone on horizontal tabs, and other keys always", () => {
+    expect(listMove(1, "ArrowUp", 4, true)).toBeNull();
+    expect(listMove(1, "x", 4)).toBeNull();
   });
 });

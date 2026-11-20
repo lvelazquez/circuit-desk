@@ -1,6 +1,7 @@
 // Scenes: the 16 scenes with what each plays, the scene chain, and storing the current chains in a
 // scene. Track order inside a scene is assumed (see core-service getScenes), so the view says so.
 import { useState } from "react";
+import { gridMove } from "./model.ts";
 import type { TrackName } from "@circuit-desk/core-service";
 import type { Scenes } from "./desk.ts";
 import { TRACK_NAMES, trackStyle } from "./tracks.ts";
@@ -30,9 +31,9 @@ export function ScenesView({ scenes, onSceneChain, onScene, playing, onPlayScene
             aria-label={`Scene ${s.scene}: ${s.saved ? "saved" : "empty"}${inChain(s.scene) ? ", in the scene chain" : ""}${s.scene === playing ? ", playing" : ""}`}
             onClick={() => setSelected(s.scene)}
             onKeyDown={(e) => {
-              const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "ArrowDown" ? 8 : e.key === "ArrowUp" ? -8 : 0;
-              const n = s.scene + d;
-              if (!d || n < 1 || n > 16) return;
+              const to = gridMove(s.scene - 1, e.key, 2, 8);
+              if (to === null) return;
+              const n = to + 1;
               e.preventDefault(); setSelected(n);
               (e.currentTarget.parentElement?.children[n - 1] as HTMLElement | undefined)?.focus();
             }}>

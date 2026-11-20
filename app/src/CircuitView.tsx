@@ -7,7 +7,7 @@ import type { CSSProperties, KeyboardEvent } from "react";
 import type { NoteStepIn, TrackName } from "@circuit-desk/core-service";
 import type { DrumPatternData, NotePatternData, PatternData, Summary } from "./desk.ts";
 import { SCALE_NAMES, type ScaleSetting } from "@circuit-desk/ncs";
-import { isBlackKey, keyboardNote, noteName, noteSpoken, stepMap, toggleNote, toggleStep } from "./model.ts";
+import { isBlackKey, keyboardNote, listMove, noteName, noteSpoken, stepMap, toggleNote, toggleStep } from "./model.ts";
 import { TRACK_NAMES, trackStyle } from "./tracks.ts";
 import { useRoving } from "./useRoving.ts";
 import { usePlayStep, usePlayingPattern } from "./playheads.ts";
@@ -40,11 +40,12 @@ function RadioRow<T>({ label, items, value, onChange, render, className, itemCla
 }) {
   const index = items.indexOf(value);
   const onKey = (e: KeyboardEvent<HTMLButtonElement>, i: number): void => {
-    const d = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
-    if (!d) return;
+    const to = listMove(i, e.key, items.length);
+    const next = to === null ? undefined : items[to];
+    if (to === null || next === undefined) return;
     e.preventDefault();
-    const next = items[(i + d + items.length) % items.length];
-    if (next !== undefined) { onChange(next); (e.currentTarget.parentElement?.children[(i + d + items.length) % items.length] as HTMLElement | undefined)?.focus(); }
+    onChange(next);
+    (e.currentTarget.parentElement?.children[to] as HTMLElement | undefined)?.focus();
   };
   return (
     <div role="radiogroup" aria-label={label} className={className}>

@@ -88,6 +88,18 @@ export function gridMove(index: number, key: string, rows: number, cols: number)
   }
 }
 
+/** Roving focus along a row of `count` items (radio rows, tabs): arrows step and wrap round,
+ *  Home and End go to the ends. Up/Down also step unless `horizontal` is set. */
+export function listMove(index: number, key: string, count: number, horizontal = false): number | null {
+  const back = key === "ArrowLeft" || (!horizontal && key === "ArrowUp");
+  const fwd = key === "ArrowRight" || (!horizontal && key === "ArrowDown");
+  if (back) return (index - 1 + count) % count;
+  if (fwd) return (index + 1) % count;
+  if (key === "Home") return 0;
+  if (key === "End") return count - 1;
+  return null;
+}
+
 /** The pitch rows a piano roll shows: the notes' range with some room, at least two octaves, highest first. */
 export function rollRange(pitches: readonly number[], around = 60): number[] {
   const lo0 = pitches.length ? Math.min(...pitches) : around, hi0 = pitches.length ? Math.max(...pitches) : around;

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { NovaInstrument } from "@circuit-desk/engine";
 import { initPatchBytes as initPatchBytesForPreview } from "@circuit-desk/patch";
 import { appOutput, audioContext, loadNovaWorklet } from "./audio.ts";
+import { isTextField } from "./storage.ts";
 import { logEvent } from "./capture.ts";
 import { DEFAULT_OCTAVE, KEY_NOTES, MAX_OCTAVE, MIN_OCTAVE, keyCode, keyNote } from "./keymap.ts";
 
@@ -21,9 +22,6 @@ export interface KeySound {
   /** Pack patches only exist here: they always play on the built-in preview. */
   previewOnly: boolean;
 }
-
-const isTextField = (el: EventTarget | null): boolean =>
-  el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement || (el instanceof HTMLElement && el.isContentEditable);
 
 export function useKeyboardPlayer(sound: KeySound | null, output: () => MIDIOutput | null) {
   const [on, setOn] = useState(false);
@@ -135,3 +133,5 @@ export function useKeyboardPlayer(sound: KeySound | null, output: () => MIDIOutp
 
   return { on, setOn, octave, velocity, error, audition };
 }
+
+export type KeyPlayer = ReturnType<typeof useKeyboardPlayer>;

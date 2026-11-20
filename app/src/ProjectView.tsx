@@ -1,12 +1,13 @@
 // Project settings: name, tempo, swing, scale, and the sound of each drum track (its sample and
 // knobs). Each change is one undoable edit, heard at once in the preview.
-import { useEffect, useState } from "react";
 import type { SettingsEdit } from "@circuit-desk/ncs";
 import { NOTE_NAMES, SCALE_INTERVALS, SCALE_NAMES } from "@circuit-desk/ncs";
-import { call, type Settings } from "./desk.ts";
+import type { Settings } from "./desk.ts";
 import { NumberField } from "./NumberField.tsx";
 import { Slider, centreText } from "./Slider.tsx";
 import { DRUM_NAMES, trackStyle } from "./tracks.ts";
+import { TextField, printableAscii } from "./ui/TextField.tsx";
+import { useServiceData } from "./ui/useServiceData.ts";
 
 export interface ProjectProps {
   projectId: string;
@@ -17,15 +18,7 @@ export interface ProjectProps {
 
 export function ProjectView(p: ProjectProps) {
   const s = p.settings;
-  const [name, setName] = useState(s.name);
-  useEffect(() => setName(s.name), [s.name]);
-  const [samples, setSamples] = useState<{ index: number; name: string }[]>([]);
-  useEffect(() => {
-    let live = true;
-    void call("packSamples", p.projectId).then((r) => { if (live) setSamples(r.samples); }, () => undefined);
-    return () => { live = false; };
-  }, [p.projectId, p.version]);
-  const commitName = (): void => { const n = name.trim(); if (n && n !== s.name) p.onEdit({ name: n }, `name “${n}”`); else setName(s.name); };
+  const samples = useServiceData("packSamples", [p.projectId], [p.projectId, p.version]).data?.samples ?? [];
   const drum = (d: number, f: "sample" | "pitch" | "decay" | "distortion" | "eq", v: number, label: string): void =>
     p.onEdit({ sound: { drums: [0, 1, 2, 3].map((i) => (i === d ? { [f]: v } : null)) } }, label);
 
@@ -33,10 +26,8 @@ export function ProjectView(p: ProjectProps) {
     <section aria-label="Project settings" className="project-settings">
       <fieldset className="fx-panel">
         <legend>Project</legend>
-        <label>Name
-          <input type="text" maxLength={32} data-tip="The name stored in the project: up to 32 plain characters. Enter saves it; Esc cancels." value={name} pattern="[\x20-\x7e]*" onChange={(e) => setName(e.target.value)} onBlur={commitName}
-            onKeyDown={(e) => { if (e.key === "Enter") commitName(); if (e.key === "Escape") setName(s.name); }} />
-        </label>
+        <TextField label="Name" value={s.name} maxLength={32} valid={printableAscii} onCommit={(n) => p.onEdit({ name: n }, `name “${n}”`)}
+          tip="The name stored in the project: up to 32 plain characters. Enter saves it; Esc cancels." />
         <div className="row">
           <NumberField tip="Beats per minute, 40–240." label="Tempo (BPM)" value={s.tempo} min={40} max={240} onCommit={(v) => p.onEdit({ tempo: v }, `tempo ${v}`)} />
           <NumberField tip="Delays every second 1/16 step: 50 is straight, higher swings, lower pushes early (20–80)." label="Swing (%)" value={s.swing} min={20} max={80} onCommit={(v) => p.onEdit({ swing: v }, `swing ${v}`)} />

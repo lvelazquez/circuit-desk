@@ -2,8 +2,9 @@
 // drums of a pattern. Every edit goes through the same service calls as the Circuit view, so the
 // device's limits (6 notes a step, 32 steps, sixth-of-a-step timing) always hold.
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { useServiceData } from "./ui/useServiceData.ts";
 import type { DrumStepIn, DrumTrackName, NoteStepIn, TrackName } from "@circuit-desk/core-service";
-import { call, type Automation, type DrumPatternData, type NotePatternData } from "./desk.ts";
+import type { DrumPatternData, NotePatternData } from "./desk.ts";
 import { clamp, isBlackKey, moveNote, noteName, noteSpoken, rollRange, STEPS, stepMap, toggleNote, updateNote } from "./model.ts";
 import { DRUM_NAMES, TRACK_NAMES, trackStyle } from "./tracks.ts";
 import { usePlayStep, usePlaySteps } from "./playheads.ts";
@@ -223,15 +224,9 @@ const EMPTY_LANE: readonly (number | null)[] = Object.freeze(new Array<number | 
 export function AutomationLanes({ projectId, version, track, pattern, onLaneEdit }: {
   projectId: string | null; version: number; track: TrackName; pattern: number; onLaneEdit: LaneEdit;
 }) {
-  const [auto, setAuto] = useState<Automation | null>(null);
+  const auto = useServiceData(projectId ? "getAutomation" : null, [projectId ?? "", track, pattern], [projectId, version, track, pattern]).data;
   const [added, setAdded] = useState<number[]>([]);
   const helpId = useId();
-  useEffect(() => {
-    if (!projectId) return;
-    let live = true;
-    void call("getAutomation", projectId, track, pattern).then((a) => { if (live) setAuto(a); }, () => { if (live) setAuto(null); });
-    return () => { live = false; };
-  }, [projectId, version, track, pattern]);
   useEffect(() => setAdded([]), [track, pattern]);
   if (!auto) return null;
   const shown = [...new Set([...auto.lanes.map((l) => l.lane), ...added])].sort((x, y) => x - y);

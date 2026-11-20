@@ -7,7 +7,7 @@
 // entries are longer than exits. Reduced motion turns the entry off (the motion tokens go to 0).
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
-export const TIP_ID = "app-tooltip";
+const TIP_ID = "app-tooltip";
 
 /** `originX`: the trigger's centre relative to the tip's, so the tip grows from its trigger even when kept on screen. */
 interface Tip { text: string; x: number; y: number; side: "below" | "above"; originX: number }

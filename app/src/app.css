@@ -246,3 +246,19 @@ legend { color: var(--color-text-secondary); font-size: var(--font-size-sm); pad
 .stack-gap-xl { margin-top: var(--space-xl); }
 .toolbar .row { margin: 0; }
 .scene-tint { --track: var(--color-scene); }
+
+/* Popover (ui/Popover.tsx): anchored below its button and grows from that button's edge.
+   Enters Medium/SmoothOut, leaves with the shorter Fast/SmoothIn; reduced motion makes both 0ms. */
+.popover-anchor { position: relative; }
+.popover { position: absolute; top: calc(100% + var(--space-xs)); z-index: var(--z-overlay); min-width: var(--size-fx-panel); display: grid; gap: var(--space-sm);
+  padding: var(--space-sm); background: var(--color-surface-raised); border: var(--size-border) solid var(--color-border-control); border-radius: var(--radius-control);
+  animation: popover-in var(--motion-duration-medium) var(--motion-easing-smooth-out); }
+.popover[data-align="start"] { left: 0; transform-origin: top left; }
+.popover[data-align="end"] { right: 0; transform-origin: top right; }
+.popover[data-state="leaving"] { animation: popover-out var(--motion-duration-fast) var(--motion-easing-smooth-in) forwards; }
+.popover[hidden] { display: none; }
+.popover label { display: grid; gap: var(--space-2xs); color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+.popover .check { display: flex; gap: var(--space-xs); align-items: center; }
+.popover .menu-item { justify-content: flex-start; text-align: left; width: 100%; }
+@keyframes popover-in { from { opacity: 0; scale: var(--motion-scale-enter); } }
+@keyframes popover-out { to { opacity: 0; scale: var(--motion-scale-enter); } }

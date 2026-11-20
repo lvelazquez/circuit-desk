@@ -1,14 +1,13 @@
 // The project's pack: its 64 drum samples (click or Enter to hear one) and which drum uses which,
 // and its synth patch banks (click or Enter to hear a patch through the Nova preview; with Keys on,
 // the chosen patch plays from the computer keyboard).
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { FirmwareProfile } from "@circuit-desk/core-service";
 import { audition } from "./audio.ts";
-import { call } from "./desk.ts";
 import { DRUM_NAMES, trackStyle } from "./tracks.ts";
+import { Empty, ErrorState, Loading } from "./ui/States.tsx";
+import { useServiceData } from "./ui/useServiceData.ts";
 
-type Pack = Awaited<ReturnType<typeof call<"packSamples">>>;
-type Patches = Awaited<ReturnType<typeof call<"packPatches">>>;
 
 export interface PackPatchChoice { bank: number; record: number; name: string }
 
@@ -22,19 +21,15 @@ export function PackView({ projectId, version, firmware, chosen, onPatch, onLoad
   /** Copy the chosen pack patch into Synth 1 or 2 (an undoable edit) and open it in the Patch view. */
   onLoad: (p: PackPatchChoice, synth: 1 | 2) => void;
 }) {
-  const [pack, setPack] = useState<Pack | null>(null);
-  const [patches, setPatches] = useState<Patches | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const samples = useServiceData("packSamples", [projectId], [projectId, version]);
+  const { data: patches, error: patchError } = useServiceData("packPatches", [projectId], [projectId, version]);
+  const pack = samples.data;
+  const [playError, setError] = useState<string | null>(null);
   const [last, setLast] = useState<number | null>(null);
-  useEffect(() => {
-    let live = true;
-    void call("packSamples", projectId).then((p) => { if (live) setPack(p); }, (e: unknown) => { if (live) setError((e as Error).message); });
-    void call("packPatches", projectId).then((p) => { if (live) setPatches(p); }, (e: unknown) => { if (live) setError((e as Error).message); });
-    return () => { live = false; };
-  }, [projectId, version]);
-  if (error) return <p className="empty">{error}</p>;
-  if (!pack) return <p className="empty">Loading…</p>;
-  if (!pack.pack) return <p className="empty">This project is not inside a pack folder (Tracks/NN_Pack/Sessions/), so there are no samples to show.</p>;
+  const error = samples.error ?? patchError ?? playError;
+  if (error) return <ErrorState message={error} />;
+  if (!pack) return <Loading what="the pack" />;
+  if (!pack.pack) return <Empty>This project is not inside a pack folder (Tracks/NN_Pack/Sessions/), so there are no samples to show.</Empty>;
 
   const users = (i: number): (typeof DRUM_NAMES)[number][] => DRUM_NAMES.filter((_, d) => pack.drums[d] === i);
   const play = async (i: number): Promise<void> => { setLast(i); if (!(await audition(projectId, i))) setError(`Sample ${i} could not be played`); };

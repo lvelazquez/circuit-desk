@@ -8,6 +8,7 @@ import { appOutput, audioContext, novaRender, packLoader } from "./audio.ts";
 import { logEvent } from "./capture.ts";
 import { call } from "./desk.ts";
 import { setHeads } from "./playheads.ts";
+import { remember, remembered } from "./storage.ts";
 
 /** The built-in preview engine's entry in the output list. */
 export const PREVIEW_PORT = "preview";
@@ -35,8 +36,6 @@ const arrangementOptions = (f: PlayFrom): { source?: "scenes" | "current"; scene
 
 export interface PortInfo { id: string; name: string }
 
-function remembered(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
-function remember(key: string, v: string): void { try { localStorage.setItem(key, v); } catch { /* a per-viewer convenience only */ } }
 
 export function usePlayer(projectId: string | null, version: number) {
   const [access, setAccess] = useState<MIDIAccess | null>(null);
@@ -180,3 +179,5 @@ export function usePlayer(projectId: string | null, version: number) {
   const chooseTarget = (t: PlayTarget): void => { if (playing) stop(); setTarget(t); remember(TARGET_KEY, t); };
   return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, error, liveOutput: output, playFrom, choosePlayFrom, fx, setFx, muted, solo, toggleMute, toggleSolo };
 }
+
+export type Player = ReturnType<typeof usePlayer>;

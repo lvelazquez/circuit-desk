@@ -2,9 +2,12 @@
 // Filter, Env 1–3, LFO 1/2, FX, EQ, Mod Matrix, Macros). Every change is one undoable edit, heard
 // at once on the built-in preview (Play, Keys, or while the pattern plays). Patch fields are
 // `partial` until a device dump confirms the layout, so edits go to copies (Save a copy) and .syx.
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { listMove } from "./model.ts";
+import { ErrorState, Loading } from "./ui/States.tsx";
+import { useServiceData } from "./ui/useServiceData.ts";
+import { TextField, printableAscii } from "./ui/TextField.tsx";
 import { PATCH_PARAMS, displayValue, param, type PatchParam, type Section } from "@circuit-desk/patch";
-import { call, type PatchData } from "./desk.ts";
 import { Slider } from "./Slider.tsx";
 import { trackStyle } from "./tracks.ts";
 
@@ -35,16 +38,10 @@ export interface PatchViewProps {
 }
 
 export function PatchView(p: PatchViewProps) {
-  const [patch, setPatch] = useState<PatchData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data: patch, error } = useServiceData("getPatch", [p.projectId, p.synth], [p.projectId, p.synth, p.version]);
   const [page, setPage] = useState<Section>("Voice");
-  useEffect(() => {
-    let live = true;
-    void call("getPatch", p.projectId, p.synth).then((x) => { if (live) { setPatch(x); setError(null); } }, (e: unknown) => { if (live) setError((e as Error).message); });
-    return () => { live = false; };
-  }, [p.projectId, p.synth, p.version]);
-  if (error) return <p className="empty">{error}</p>;
-  if (!patch) return <p className="empty">Loading…</p>;
+  if (error) return <ErrorState message={error} />;
+  if (!patch) return <Loading what="the patch" />;
 
   const v = (id: string): number => patch.values[id] ?? 0;
   const set = (q: PatchParam, value: number): void => p.onEdit({ [q.id]: value }, undefined, `Synth ${p.synth} ${q.section} ${labelOf(q).toLowerCase()} ${displayValue(q, value)}`);
@@ -88,8 +85,8 @@ export function PatchView(p: PatchViewProps) {
   };
 
   const onTabKey = (e: KeyboardEvent<HTMLButtonElement>, i: number): void => {
-    const next = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? PAGES.length - 1 : null;
-    if (next === null || next < 0 || next >= PAGES.length) return;
+    const next = listMove(i, e.key, PAGES.length, true);
+    if (next === null) return;
     e.preventDefault();
     setPage(PAGES[next]!);
     document.getElementById(`patch-tab-${next}`)?.focus();
@@ -105,7 +102,8 @@ export function PatchView(p: PatchViewProps) {
               data-tip={`Edit Synth ${s}'s patch (stored in the project).`}>Synth {s}</button>
           ))}
         </div>
-        <NameField name={patch.name} onCommit={(name) => p.onEdit({}, name, `Synth ${p.synth} patch name "${name}"`)} />
+        <TextField label="Name" value={patch.name} maxLength={16} valid={printableAscii} onCommit={(name) => p.onEdit({}, name, `Synth ${p.synth} patch name "${name}"`)}
+          tip="The patch name: up to 16 letters, digits and plain punctuation (ASCII). Enter saves it as an edit; Esc cancels." />
         {control("category")}
         <button type="button" className="btn" onClick={p.onPlay} data-tip="Play a short C3 with this patch on the built-in preview. Turn on Keys to play it from the computer keyboard.">▶ Play C3</button>
         <button type="button" className="btn" onClick={p.onExport} data-tip="Write this patch as a .syx file (Novation's portable patch format) to the project's exports folder. Nothing is sent to a device.">Export .syx</button>
@@ -179,19 +177,3 @@ function Macros({ control }: { control: Control }) {
     </div>
   );
 }
-
-/** The 16-character patch name: commits on Enter or blur, Escape reverts. */
-function NameField({ name, onCommit }: { name: string; onCommit: (name: string) => void }) {
-  const [text, setText] = useState(name);
-  useEffect(() => setText(name), [name]);
-  const valid = text.length <= 16 && /^[\x20-\x7e]*$/.test(text);
-  const commit = (): void => { if (valid && text !== name) onCommit(text); };
-  return (
-    <label>Name
-      <input type="text" value={text} maxLength={16} aria-invalid={!valid} data-tip="The patch name: up to 16 letters, digits and plain punctuation (ASCII). Enter saves it as an edit."
-        onChange={(e) => setText(e.target.value)} onBlur={commit}
-        onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setText(name); }} />
-    </label>
-  );
-}
-
