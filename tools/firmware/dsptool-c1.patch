@@ -1,6 +1,6 @@
---- a/tools/dsptool/dsptool.cpp	2026-11-19 22:39:47
-+++ b/tools/dsptool/dsptool.cpp	2026-11-20 00:18:03
-@@ -33,6 +33,44 @@
+--- a/tools/dsptool/dsptool.cpp
++++ b/tools/dsptool/dsptool.cpp
+@@ -33,6 +33,46 @@
      return 0;
  }
  
@@ -14,7 +14,7 @@
 +// points to. (A PC hook cannot work: the emulator runs a whole DO loop in one step.) External words come
 +// from `C1LOAD addr file` (raw 3-byte big-endian words); addresses not loaded read 0 and are counted.
 +struct C1Stub {
-+    bool on = false, busy = false; uint64_t served = 0, missed = 0, gets = 0, sets = 0, rearm = 0;
++    bool on = false, busy = false, fromY = false; uint64_t served = 0, missed = 0, gets = 0, sets = 0, rearm = 0, fromYServed = 0;
 +    std::unordered_map<TWord, TWord> ext; FILE* log = nullptr;
 +};
 +static C1Stub g_c1;
@@ -26,7 +26,9 @@
 +    g_c1.busy = true;
 +    const TWord a = g_c1Mem->get(MemArea_X, off) & 0xffffff; TWord v = 0;
 +    auto it = g_c1.ext.find(a);
-+    if (it != g_c1.ext.end()) v = it->second; else ++g_c1.missed;
++    if (it != g_c1.ext.end()) v = it->second;
++    else if (g_c1.fromY && a >= 0x80000 && a < 0x200000) { v = g_c1Mem->get(MemArea_Y, a) & 0xffffff; ++g_c1.fromYServed; }   // C1FROMY: tables core 0 built in its external Y
++    else ++g_c1.missed;
 +    if (g_c1.log) fprintf(g_c1.log, "%06x %06x\n", a, v);
 +    g_c1Mem->set(MemArea_X, off, v); g_c1Mem->set(MemArea_Y, off, v);   // the shared window is one RAM seen from both buses: core 0 reads results with y:(r5)+
 +    g_c1Served[i] = 1; ++g_c1.served;
@@ -45,7 +47,7 @@
  static TWord g_curPC = 0; static FILE* g_watchOut = nullptr; static uint64_t g_watchMax = 200000;
  static void watchCb(EMemArea a, TWord addr, bool w, TWord v) {
      if (!g_watchOut || !g_watchMax) return; --g_watchMax;
-@@ -45,12 +83,12 @@
+@@ -45,12 +85,12 @@
  //  RUN   DUMPX addr n   DUMPY addr n  WATCHX lo hi (report writes)  -- watch via compare snapshots
  static int cmdRun(const char* script) {
      PeripheralsNop px, py;
@@ -61,11 +63,12 @@
      bool spTrack = false; TWord spMax = 0, spMaxPC = 0;                         // SPMAX: deepest system stack in RUNs     // WATCHFILE f ; WATCH X|Y addr [n]: log PC of accesses
      while (std::getline(f, line)) {
          std::istringstream s(line); std::string c; s >> c;
-@@ -75,11 +113,30 @@
+@@ -75,11 +115,31 @@
              TWord addr = strtoul(as.c_str(), nullptr, 16); auto& v = sp == "X" ? wX : wY;
              for (TWord i = 0; i < n; ++i) v[addr + i] = 1; watching = true;
          }
 +        else if (c == "C1") { std::string m; s >> m; g_c1.on = (m == "ON"); g_c1Mem = &mem; g_memGetHook = c1GetHook; g_memSetHook = c1SetHook; }
++        else if (c == "C1FROMY") { std::string m; s >> m; g_c1.fromY = (m == "ON"); }   // C1FROMY ON: addresses nobody loaded read core 0's external Y (one SDRAM for both cores; inferred)
 +        else if (c == "C1LOAD") {   // C1LOAD addr file : raw 3-byte BE words into core 1's external X
 +            std::string fn, as; s >> as >> fn; TWord addr = strtoul(as.c_str(), nullptr, 16);
 +            std::ifstream b(fn, std::ios::binary); std::vector<unsigned char> d((std::istreambuf_iterator<char>(b)), {});
@@ -82,7 +85,7 @@
 +            }
 +        }
 +        else if (c == "C1LOG") { std::string fn; s >> fn; g_c1.log = fopen(fn.c_str(), "w"); }
-+        else if (c == "C1STAT") { printf("C1 served %llu missed %llu gets %llu sets %llu rearm %llu\n", (unsigned long long)g_c1.served, (unsigned long long)g_c1.missed, (unsigned long long)g_c1.gets, (unsigned long long)g_c1.sets, (unsigned long long)g_c1.rearm); }
++        else if (c == "C1STAT") { printf("C1 served %llu missed %llu gets %llu sets %llu rearm %llu fromY %llu\n", (unsigned long long)g_c1.served, (unsigned long long)g_c1.missed, (unsigned long long)g_c1.gets, (unsigned long long)g_c1.sets, (unsigned long long)g_c1.rearm, (unsigned long long)g_c1.fromYServed); }
          else if (c == "RUN") {
              uint64_t n = 0; const uint64_t i0 = dsp.getInstructionCounter(), c0 = dsp.getCycles();
              if (!traceFile.empty()) { g_memTrace[MemArea_X] = trX.data(); g_memTrace[MemArea_Y] = trY.data(); }
@@ -93,7 +96,7 @@
                  if (spTrack && dsp.ssIndex() > spMax) { spMax = dsp.ssIndex(); spMaxPC = g_curPC; } }
              g_memWatch[MemArea_X] = g_memWatch[MemArea_Y] = nullptr;
              g_memTrace[MemArea_X] = g_memTrace[MemArea_Y] = nullptr;
-@@ -92,6 +149,8 @@
+@@ -92,6 +152,8 @@
              printf("\n");
          }
      }
