@@ -10,6 +10,21 @@ import { checkWritable, defaultPaths, type DeskPaths } from "./paths.ts";
 import { DEFAULT_FIRMWARE, FIRMWARES, firmwareProfile, type FirmwareId, type FirmwareProfile } from "./firmware.ts";
 
 export interface PackPatchOut { record: number; name: string; category: string; ownSynthData: boolean }
+export interface PatchOut {
+  synth: 1 | 2;
+  name: string;
+  /** Raw byte per parameter id (packages/patch PATCH_PARAMS). */
+  values: Record<string, number>;
+  /** Values outside the guide's ranges, as stored (kept as they are unless edited). */
+  problems: string[];
+  status: N.FieldStatus;
+  evidence: string;
+}
+
+function synthIndex(synth: number): 0 | 1 {
+  if (synth !== 1 && synth !== 2) throw new ServiceError(`synth must be 1 or 2, got ${synth}`);
+  return (synth - 1) as 0 | 1;
+}
 export interface PackBankOut { bank: number; file: string; patches: PackPatchOut[] }
 
 export const TRACKS = [...N.NOTE_TRACKS, ...N.DRUM_TRACKS] as const;
@@ -426,6 +441,57 @@ export class ProjectService {
     const b = this.get(id).project.bytes;
     const at = (s: number): number[] => Array.from(b.subarray(N.PATCH0 + s * N.PATCH_SIZE, N.PATCH0 + (s + 1) * N.PATCH_SIZE));
     return { synth1: at(0), synth2: at(1) };
+  }
+
+  /**
+   * Synth 1 or 2's patch as values (by parameter id, see packages/patch format.ts), with how far
+   * the patch layout is trusted (registry `patch.synthN`): `partial` until a device dump matches.
+   */
+  getPatch(id: string, synth: 1 | 2): PatchOut {
+    const s = synthIndex(synth);
+    const bytes = this.get(id).project.bytes.subarray(N.PATCH0 + s * N.PATCH_SIZE, N.PATCH0 + (s + 1) * N.PATCH_SIZE);
+    const patch = P.parsePatch(bytes);
+    const field = N.fieldById(N.SESSION_FIELDS, `patch.synth${s + 1}`);
+    return { synth: (s + 1) as 1 | 2, name: patch.name, values: patch.values, problems: P.patchProblems(patch), status: field.status, evidence: field.evidence };
+  }
+
+  /**
+   * Changes parameters (and optionally the name) of Synth 1 or 2's patch, as one undoable edit.
+   * Only the changed bytes are written. Patch fields are `partial` (see getPatch): edits go to copies.
+   */
+  setPatchParams(id: string, synth: 1 | 2, changes: Readonly<Record<string, number>>, name?: string): N.ChangedRange[] {
+    const s = synthIndex(synth);
+    return this.edit(id, (p) => {
+      const base = p.bytes.subarray(N.PATCH0 + s * N.PATCH_SIZE, N.PATCH0 + (s + 1) * N.PATCH_SIZE);
+      let next: Uint8Array;
+      try { next = P.editPatchBytes(base, changes, name); } catch (e) { throw new RangeError((e as Error).message); }
+      return N.writePatch(p, s, next);
+    });
+  }
+
+  /** Copies a pack patch into Synth 1 or 2, as one undoable edit (the pack file is never written). */
+  loadPackPatch(id: string, synth: 1 | 2, bank: number, record: number): N.ChangedRange[] {
+    const s = synthIndex(synth);
+    const bytes = Uint8Array.from(this.packPatch(id, bank, record));
+    return this.edit(id, (p) => N.writePatch(p, s, bytes));
+  }
+
+  /**
+   * Exports Synth 1 or 2's patch as a single-patch .syx file (one "Replace current patch"
+   * message for Synth 1, Novation's portable format) in the project's exports folder. Never
+   * overwrites. Writing a file only: nothing is sent to a device.
+   */
+  exportPatchSyx(id: string, synth: 1 | 2): { path: string } {
+    const s = synthIndex(synth);
+    const o = this.get(id);
+    const bytes = o.project.bytes.slice(N.PATCH0 + s * N.PATCH_SIZE, N.PATCH0 + (s + 1) * N.PATCH_SIZE);
+    const name = (P.patchName(bytes) || "Unnamed").replace(/[^\w .()+-]/g, "_");
+    const dir = this.exportDir(o);
+    let path = join(dir, `Synth ${s + 1} - ${name}.syx`);
+    for (let n = 2; existsSync(path); n++) path = join(dir, `Synth ${s + 1} - ${name} (${n}).syx`);
+    checkWritable(path, [this.paths.exports]);
+    writeFileSync(path, P.replaceCurrentPatchMessage(bytes, 0), { flag: "wx" });
+    return { path };
   }
 
   /** The WAV file of sample `index` (0–63) of the project's pack. Read-only. */

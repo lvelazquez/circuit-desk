@@ -70,6 +70,31 @@ export function buildPatch(patch: Patch, base: Uint8Array): Uint8Array {
   return out;
 }
 
+/**
+ * Applies `changes` (and a new name) to a copy of `base`, checking only what changes: values the
+ * patch already holds are kept as stored, even outside the guide's ranges (as note edits keep
+ * what the device saved). Reserved bytes cannot be changed. Throws PatchError on a bad change.
+ */
+export function editPatchBytes(base: Uint8Array, changes: Readonly<Record<string, number>>, name?: string): Uint8Array {
+  if (base.length < PATCH_SIZE) throw new PatchError([`a patch is ${PATCH_SIZE} bytes, got ${base.length}`]);
+  const problems: string[] = [];
+  const out = base.slice(0, PATCH_SIZE);
+  for (const [id, v] of Object.entries(changes)) {
+    let p;
+    try { p = param(id); } catch (e) { problems.push((e as Error).message); continue; }
+    if (p.reserved) { problems.push(`${id} is reserved and cannot be changed`); continue; }
+    if (!Number.isInteger(v) || v < p.min || v > p.max) { problems.push(`${id} = ${v} is outside ${p.min}–${p.max}`); continue; }
+    out[p.address] = v;
+  }
+  if (name !== undefined && name !== patchName(base)) {
+    if (name.length > NAME_LEN) problems.push(`name is longer than ${NAME_LEN} characters`);
+    else if (!/^[\x20-\x7e]*$/.test(name)) problems.push("name must be printable ASCII");
+    else { const padded = name.padEnd(NAME_LEN, " "); for (let i = 0; i < NAME_LEN; i++) out[i] = padded.charCodeAt(i); }
+  }
+  if (problems.length) throw new PatchError(problems);
+  return out;
+}
+
 /** The guide's default patch ("Initial Patch"): a synthetic fixture with no pack data in it. */
 export function initPatchBytes(): Uint8Array {
   const b = new Uint8Array(PATCH_SIZE);

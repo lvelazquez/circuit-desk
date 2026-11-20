@@ -2,5 +2,8 @@
   "name": "@circuit-desk/ncs",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" }
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "@circuit-desk/patch": "*"
+  }
 }

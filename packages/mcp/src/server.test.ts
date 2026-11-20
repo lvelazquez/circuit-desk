@@ -41,7 +41,7 @@ describe("circuit-desk MCP server", () => {
   it("lists its tools, each with a description and read-only hint", async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
-    for (const n of ["list_projects", "open_project", "get_pattern", "set_steps", "set_drum_steps", "set_pattern_settings", "get_automation", "set_automation", "get_scenes", "set_chain", "set_scene", "undo", "redo", "diff_vs_original", "validate", "get_fields", "save_copy", "export_midi", "export_als"]) expect(names).toContain(n);
+    for (const n of ["list_projects", "open_project", "get_pattern", "set_steps", "set_drum_steps", "set_pattern_settings", "get_automation", "set_automation", "get_scenes", "set_chain", "set_scene", "undo", "redo", "diff_vs_original", "validate", "get_fields", "save_copy", "export_midi", "export_als", "list_pack_patches", "get_patch", "set_patch_params", "load_pack_patch", "export_patch_syx"]) expect(names).toContain(n);
     for (const t of tools) { expect(t.description).toBeTruthy(); expect(t.annotations?.readOnlyHint).toBeTypeOf("boolean"); }
   });
 
@@ -129,6 +129,23 @@ describe("circuit-desk MCP server", () => {
     const bad = await call("set_automation", { project: "p1", track: "Drum 2", pattern: 1, lane: 9, points: [{ step: 1, value: 3 }] });
     expect(bad.error).toBe(true);
     expect(bad.text).toMatch(/lane must be 1–8/);
+  });
+
+  it("reads and edits a synth patch, and exports it as .syx", async () => {
+    const id = ((await call("open_project", { path: file })).json as { id: string }).id;
+    const before = (await call("get_patch", { project: id, synth: 1 })).json as { values: Record<string, number>; status: string };
+    expect(before.status).toBe("partial");
+    const r = await call("set_patch_params", { project: id, synth: 1, changes: { "filter.frequency": 61 }, name: "MCP Lead" });
+    expect(r.error).toBe(false);
+    expect(JSON.stringify(r.json)).toContain("Synth 1 patch: filter.frequency");
+    const after = (await call("get_patch", { project: id, synth: 1 })).json as { name: string; values: Record<string, number> };
+    expect(after.name).toBe("MCP Lead");
+    expect(after.values["filter.frequency"]).toBe(61);
+    expect((await call("set_patch_params", { project: id, synth: 1, changes: { "osc1.wave": 30 } })).error).toBe(true);
+    const x = (await call("export_patch_syx", { project: id, synth: 1 })).json as { path: string };
+    expect(x.path).toMatch(/Synth 1 - MCP Lead\.syx$/);
+    await call("undo", { project: id });
+    await call("undo", { project: id });
   });
 
   it("reads and sets project settings and pattern direction", async () => {

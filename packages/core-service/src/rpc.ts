@@ -12,12 +12,12 @@ import { UnsafeWriteError } from "./paths.ts";
 export const SERVICE_METHODS = [
   "listProjects", "openProject", "closeProject", "openProjects", "summary", "getPattern",
   "setSteps", "setDrumSteps", "setPatternSettings", "getScenes", "setChain", "setScene",
-  "undo", "redo", "diffVsOriginal", "validate", "saveCopy", "exportMidi", "exportAls", "arrangement", "fields", "getAutomation", "setAutomation", "packSamples", "sampleData", "saveAudio", "synthPatches", "soundSettings", "settings", "setSettings", "packPatches", "packPatch", "firmware", "setFirmware", "saveReport",
+  "undo", "redo", "diffVsOriginal", "validate", "saveCopy", "exportMidi", "exportAls", "arrangement", "fields", "getAutomation", "setAutomation", "packSamples", "sampleData", "saveAudio", "synthPatches", "soundSettings", "settings", "setSettings", "packPatches", "packPatch", "firmware", "setFirmware", "saveReport", "getPatch", "setPatchParams", "loadPackPatch", "exportPatchSyx",
 ] as const;
 export type ServiceMethod = (typeof SERVICE_METHODS)[number];
 
 /** Methods that change a project; after one, the app refreshes its window. */
-export const EDIT_METHODS: ReadonlySet<string> = new Set(["openProject", "closeProject", "setSteps", "setDrumSteps", "setPatternSettings", "setChain", "setScene", "setSettings", "setAutomation", "undo", "redo", "setFirmware"]);
+export const EDIT_METHODS: ReadonlySet<string> = new Set(["openProject", "closeProject", "setSteps", "setDrumSteps", "setPatternSettings", "setChain", "setScene", "setSettings", "setAutomation", "undo", "redo", "setFirmware", "setPatchParams", "loadPackPatch"]);
 
 export type Reply = { id: number; ok: true; value: unknown } | { id: number; ok: false; error: string };
 

@@ -77,7 +77,7 @@ export function createServer(service = new ProjectService(), opts: { socket?: st
       "Reads, edits and exports Novation Circuit Tracks projects (.ncs).",
       "Open a project first; edits stay in memory (with undo) until save_copy, which writes a new file to the copies folder. Nothing here writes to the SD card or to the original file.",
       "When the Circuit Desk app is running, tools work on the projects open in it and edits show there at once; otherwise they work on the files (see the connection tool).",
-      "Numbers are 1-based as on the device. Notes, steps, scenes and chains are confirmed on a device; project settings (tempo, swing, scale, mixer, FX, drum sounds) are editable but read from strong evidence short of a device check, so each change reports its status. Synth patches are read-only for now.",
+      "Numbers are 1-based as on the device. Notes, steps, scenes and chains are confirmed on a device; project settings (tempo, swing, scale, mixer, FX, drum sounds) are editable but read from strong evidence short of a device check, so each change reports its status. Synth patches are editable the same way (partial until a device dump matches).",
       "Stored notes are relative to the project's scale root: the root transposes every note track as it plays.",
     ].join(" "),
   });
@@ -265,6 +265,38 @@ export function createServer(service = new ProjectService(), opts: { socket?: st
     description: "The synth patch banks of the project's pack: bank, record, name, category, and whether a record also holds a CIRCUIT-HACKS own-synth patch. Read-only.",
     inputSchema: { project }, annotations: READ,
   }, ({ project: id }) => run(() => svc.packPatches(id)));
+
+  const synth = z.union([z.literal(1), z.literal(2)]).describe("Synth 1 or 2");
+
+  server.registerTool("get_patch", {
+    title: "Get synth patch",
+    description: "Synth 1 or 2's patch as raw values by parameter id (Novation's Synth Patch Format, e.g. filter.frequency, osc1.wave, macro3.a.destination; 64 = 0 on bipolar ones), its name, any stored values outside the guide's ranges, and how far the patch layout is trusted (partial until a device dump matches).",
+    inputSchema: { project, synth }, annotations: READ,
+  }, ({ project: id, synth: s }) => run(() => svc.getPatch(id, s)));
+
+  server.registerTool("set_patch_params", {
+    title: "Set synth patch parameters",
+    description: "Changes parameters (by id, raw values as in get_patch) and optionally the name (16 printable ASCII characters) of Synth 1 or 2's patch, as one undoable edit. Only changed bytes are written; values are checked against the guide's ranges. Patch fields are partial: edits go to copies. Returns the changed byte ranges, each named by parameter.",
+    inputSchema: {
+      project, synth,
+      changes: z.record(z.string(), z.number().int().min(0).max(127)).describe('e.g. {"filter.frequency": 60, "osc1.wave": 13}'),
+      name: z.string().max(16).optional(),
+    },
+    annotations: EDIT,
+  }, ({ project: id, synth: s, changes: c, name }) => run(async () => changes(await svc.setPatchParams(id, s, c, name))));
+
+  server.registerTool("load_pack_patch", {
+    title: "Load a pack patch into a synth",
+    description: "Copies a patch from the project's pack (bank and record as in list_pack_patches) into Synth 1 or 2, as one undoable edit. The pack's files are never written.",
+    inputSchema: { project, synth, bank: z.number().int().min(0).max(63), record: z.number().int().min(0).max(7) },
+    annotations: EDIT,
+  }, ({ project: id, synth: s, bank, record }) => run(async () => changes(await svc.loadPackPatch(id, s, bank, record))));
+
+  server.registerTool("export_patch_syx", {
+    title: "Export synth patch as .syx",
+    description: "Writes Synth 1 or 2's patch as a single-patch .syx file (Novation's portable format: one 'Replace current patch' message) to the project's exports folder. Writes a file only; nothing is sent to a device.",
+    inputSchema: { project, synth }, annotations: WRITE,
+  }, ({ project: id, synth: s }) => run(() => svc.exportPatchSyx(id, s)));
 
   server.registerTool("get_fields", {
     title: "Get raw fields",

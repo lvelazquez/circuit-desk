@@ -6,6 +6,7 @@ import * as L from "./layout.ts";
 import { buildDrumPattern, buildNotePattern, parseDrumPattern, parseNotePattern, type DrumPattern, type NotePattern } from "./pattern.ts";
 import { extraLanesSum, readTrailer, type Chain, type Project } from "./project.ts";
 import { DRUM_PATTERN_FIELDS, NOTE_PATTERN_FIELDS, SESSION_FIELDS, type Field } from "./registry.ts";
+import { NAME_LEN, PATCH_PARAMS } from "@circuit-desk/patch";
 
 function int(what: string, v: number, min: number, max: number): void {
   if (!Number.isInteger(v) || v < min || v > max) throw new RangeError(`${what} must be a whole number ${min}–${max}, got ${v}`);
@@ -128,6 +129,24 @@ export function writeScene(p: Project, scene: number, chains: readonly Chain[]):
   return { bytes: out };
 }
 
+/**
+ * Replaces Synth 1 (0) or Synth 2 (1)'s 340-byte patch. The bytes are a whole patch, built with
+ * packages/patch `buildPatch` so only the edited parameters differ. Status `partial` (registry).
+ */
+export function writePatch(p: Project, synth: number, patch: Uint8Array): Project {
+  int("synth", synth, 0, 1);
+  if (patch.length !== L.PATCH_SIZE) throw new RangeError(`a synth patch is ${L.PATCH_SIZE} bytes, got ${patch.length}`);
+  const out = p.bytes.slice();
+  out.set(patch, L.PATCH0 + synth * L.PATCH_SIZE);
+  return { bytes: out };
+}
+
+/** The patch parameter at a byte inside a synth patch: "name" for bytes 0–15. */
+function patchFieldAt(rel: number): string {
+  if (rel < NAME_LEN) return "name";
+  return PATCH_PARAMS.find((x) => x.address === rel)?.id ?? `byte ${rel}`;
+}
+
 export interface ChangedRange {
   offset: number;
   length: number;
@@ -148,6 +167,12 @@ function fieldAt(offset: number): { field: string; status: ChangedRange["status"
     ?? inPattern(L.MIDI0, L.PAT, 16, ["MIDI 1", "MIDI 2"], NOTE_PATTERN_FIELDS)
     ?? inPattern(L.DRUM0, L.DPAT, 32, L.DRUM_TRACKS, DRUM_PATTERN_FIELDS);
   if (hit) return hit;
+  // Synth patches: name the parameter, e.g. "Synth 1 patch: filter.frequency".
+  if (offset >= L.PATCH0 && offset < L.PATCH0 + 2 * L.PATCH_SIZE) {
+    const s = Math.floor((offset - L.PATCH0) / L.PATCH_SIZE);
+    const entry = SESSION_FIELDS.find((x) => x.id === `patch.synth${s + 1}`);
+    return { field: `Synth ${s + 1} patch: ${patchFieldAt((offset - L.PATCH0) % L.PATCH_SIZE)}`, status: entry?.status ?? "unknown" };
+  }
   const f = SESSION_FIELDS.find((x) => offset >= x.offset && offset < x.offset + x.size);
   return { field: f?.id ?? "?", status: f?.status ?? "unknown" };
 }
