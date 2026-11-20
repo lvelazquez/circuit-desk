@@ -20,7 +20,8 @@
     "app:midi-probe": "npm run app:build && electron app/scripts/midi-probe.ts",
     "app:render": "npm run app:build && electron app/scripts/render-preview.ts",
     "app:bundle": "vite build --config app/vite.electron.config.ts",
-    "app:dist": "node tools/package-app.ts"
+    "app:dist": "node tools/package-app.ts",
+    "app:icon": "electron app/scripts/make-icon.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
