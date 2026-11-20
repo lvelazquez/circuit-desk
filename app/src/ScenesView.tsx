@@ -10,11 +10,14 @@ export interface ScenesProps {
   scenes: Scenes;
   onSceneChain: (first: number, last: number) => void;
   onScene: (scene: number, chains: Partial<Record<TrackName, { first: number; last: number }>>, label: string) => void;
+  /** The scene the Play button is looping, if one is playing. */
+  playing: number | null;
+  onPlayScene: (scene: number) => void;
 }
 
 const chainText = (c: { first: number; last: number } | undefined): string => (!c ? "–" : c.first === c.last ? `${c.first}` : `${c.first}–${c.last}`);
 
-export function ScenesView({ scenes, onSceneChain, onScene }: ScenesProps) {
+export function ScenesView({ scenes, onSceneChain, onScene, playing, onPlayScene }: ScenesProps) {
   const [selected, setSelected] = useState(1);
   const scene = scenes.scenes[selected - 1];
   const inChain = (n: number): boolean => n >= scenes.sceneChain.first && n <= scenes.sceneChain.last;
@@ -23,8 +26,8 @@ export function ScenesView({ scenes, onSceneChain, onScene }: ScenesProps) {
       <div role="radiogroup" aria-label="Scene" className="grid">
         {scenes.scenes.map((s) => (
           <button key={s.scene} type="button" role="radio" aria-checked={s.scene === selected} tabIndex={s.scene === selected ? 0 : -1}
-            className="pad" data-on={s.saved} data-selected={s.scene === selected} data-outside={!inChain(s.scene)}
-            aria-label={`Scene ${s.scene}: ${s.saved ? "saved" : "empty"}${inChain(s.scene) ? ", in the scene chain" : ""}`}
+            className="pad scene" data-on={s.saved} data-selected={s.scene === selected} data-outside={!inChain(s.scene)} data-playing={s.scene === playing}
+            aria-label={`Scene ${s.scene}: ${s.saved ? "saved" : "empty"}${inChain(s.scene) ? ", in the scene chain" : ""}${s.scene === playing ? ", playing" : ""}`}
             onClick={() => setSelected(s.scene)}
             onKeyDown={(e) => {
               const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : e.key === "ArrowDown" ? 8 : e.key === "ArrowUp" ? -8 : 0;
@@ -65,6 +68,7 @@ export function ScenesView({ scenes, onSceneChain, onScene }: ScenesProps) {
             </tbody>
           </table>
           <div className="row">
+            <button type="button" className="btn" onClick={() => onPlayScene(scene.scene)}>▶ Play scene {scene.scene}</button>
             <button type="button" className="btn" onClick={() => onScene(scene.scene, scenes.currentChains, `stored the current chains in scene ${scene.scene}`)}>Store current chains in scene {scene.scene}</button>
           </div>
           <p className="hint">{scenes.note}.</p>

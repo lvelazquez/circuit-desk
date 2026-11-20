@@ -87,6 +87,10 @@ export interface Arrangement {
 export interface ArrangeOptions {
   /** `scenes` plays the saved scene chain; `current` plays the pattern chains the project was saved with. Default: scenes when any is saved. */
   source?: "scenes" | "current";
+  /** Plays only this scene (1–16), with the pattern chains stored in it. Overrides `source`. */
+  scene?: number;
+  /** Plays only this pattern (1–8) on every track. Overrides `source`; not together with `scene`. */
+  pattern?: number;
   /** How many times the whole sequence plays. Default 1. */
   repeats?: number;
   channels?: readonly number[];
@@ -195,12 +199,22 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
   const warnings: string[] = [];
 
   const anySaved = scenes.some((s) => s.saved);
+  if (opts.scene !== undefined && opts.pattern !== undefined) throw new RangeError("choose a scene or a pattern, not both");
   const source = opts.source ?? (anySaved ? "scenes" : "current");
-  if (source === "scenes" && !anySaved) throw new Error("the project has no saved scenes; use source: current");
+  if (opts.scene === undefined && opts.pattern === undefined && source === "scenes" && !anySaved) throw new Error("the project has no saved scenes; use source: current");
 
   // Each pass: the pattern chain of every track.
   const passes: { scene: number | null; chains: N.Chain[] }[] = [];
-  if (source === "current") passes.push({ scene: null, chains: chains.tracks });
+  if (opts.scene !== undefined) {
+    if (!Number.isInteger(opts.scene) || opts.scene < 1 || opts.scene > 16) throw new RangeError(`scene must be 1–16, got ${opts.scene}`);
+    const sc = scenes[opts.scene - 1];
+    if (!sc) throw new RangeError(`no scene ${opts.scene}`);
+    if (!sc.saved) warnings.push(`scene ${opts.scene} is not saved; its stored chains are used`);
+    passes.push({ scene: opts.scene - 1, chains: sc.chains });
+  } else if (opts.pattern !== undefined) {
+    if (!Number.isInteger(opts.pattern) || opts.pattern < 1 || opts.pattern > N.PATTERNS_PER_TRACK) throw new RangeError(`pattern must be 1–${N.PATTERNS_PER_TRACK}, got ${opts.pattern}`);
+    passes.push({ scene: null, chains: TRACK_NAMES.map(() => ({ first: opts.pattern! - 1, last: opts.pattern! - 1 })) });
+  } else if (source === "current") passes.push({ scene: null, chains: chains.tracks });
   else {
     const a = Math.min(chains.scenes.first, chains.scenes.last), z = Math.max(chains.scenes.first, chains.scenes.last);
     for (let e = a; e <= z; e++) {

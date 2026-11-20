@@ -16,7 +16,7 @@ import { encodeWav, renderOffline } from "@circuit-desk/engine";
 import { novaRender } from "./audio.ts";
 import { buildReport } from "./capture.ts";
 import appPackage from "../package.json";
-import { usePlayer } from "./usePlayer.ts";
+import { parsePlayFrom, playFromValue, usePlayer } from "./usePlayer.ts";
 import { useKeyboardPlayer, type KeySound } from "./useKeyboardPlayer.ts";
 import type { PackPatchChoice } from "./PackView.tsx";
 import { patchName } from "@circuit-desk/patch";
@@ -268,6 +268,18 @@ export function App() {
         <div role="group" aria-label="Transport" className="row" style={{ margin: 0 }}>
           <button type="button" className="btn" aria-pressed={player.playing} disabled={!projectId}
             onClick={() => (player.playing ? player.stop() : void player.play())}>{player.playing ? "■ Stop" : "▶ Play"}</button>
+          <label className="visually-hidden" htmlFor="play-from">What plays</label>
+          <select id="play-from" value={playFromValue(player.playFrom)} disabled={!projectId} onChange={(e) => player.choosePlayFrom(parsePlayFrom(e.target.value))}
+            title="What the Play button plays. Changing it while playing starts the new part from its beginning.">
+            <option value="current">Current patterns</option>
+            <option value="scenes">Scene chain</option>
+            <optgroup label="One scene">
+              {Array.from({ length: 16 }, (_, i) => <option key={i} value={`scene:${i + 1}`}>Scene {i + 1}{scenes?.scenes[i]?.saved ? " •" : ""}</option>)}
+            </optgroup>
+            <optgroup label="One pattern, all tracks">
+              {Array.from({ length: 8 }, (_, i) => <option key={i} value={`pattern:${i + 1}`}>Pattern {i + 1}</option>)}
+            </optgroup>
+          </select>
           <label className="visually-hidden" htmlFor="midi-out">MIDI output</label>
           <select id="midi-out" value={player.portId ?? ""} onChange={(e) => player.choosePort(e.target.value)}>
             <option value="">{player.ports.length ? "MIDI output…" : "No MIDI outputs"}</option>
@@ -302,12 +314,12 @@ export function App() {
           {!summary || !data ? <p className="empty">{projectId ? "Loading…" : "Choose a project in the library, or File › Open Project."}</p>
             : view === "pack" && projectId ? <PackView projectId={projectId} version={version} firmware={firmware?.current ?? null} chosen={packChoice} onPatch={choosePackPatch} />
             : view === "scenes" ? (scenes ? (
-              <ScenesView scenes={scenes}
+              <ScenesView scenes={scenes} playing={player.playing && player.playFrom.kind === "scene" ? player.playFrom.n : null} onPlayScene={(n) => player.choosePlayFrom({ kind: "scene", n }, true)}
                 onSceneChain={(first, last) => { if (projectId) void edit(`scene chain ${first}–${last}`, () => call("setChain", projectId, "scenes", first, last)); }}
                 onScene={(n, chains, label) => { if (projectId) void edit(label, () => call("setScene", projectId, n, chains)); }} />
             ) : <p className="empty">Loading…</p>)
             : view === "circuit" ? (
-              <CircuitView playStep={playStep(track)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
+              <CircuitView playingPattern={player.playing ? player.heads[TRACK_NAMES.indexOf(track)]?.pattern ?? null : null} onPlayPattern={(n) => player.choosePlayFrom({ kind: "pattern", n }, true)} playStep={playStep(track)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
                 onTrack={chooseTrack} onPattern={choosePattern} onSelectStep={setStep} onPage={setPage} onOctave={setOctave} onCurrentNote={setCurrentNote}
                 onNoteSteps={onNoteSteps} onDrumStep={(s, velocity, label) => { if (isDrum(track)) onDrumSteps(track, [{ step: s, velocity }], label); }} />
             ) : (

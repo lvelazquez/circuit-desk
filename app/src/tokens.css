@@ -81,6 +81,11 @@
   --font-tracking-caps: 0.06em;
   --line-height-body: 1.4;
 
+  /* Device-like cell tints: how much track colour a quiet state carries (the rest is the pad surface). */
+  --mix-used: 30%;
+  --mix-root: 24%;
+  --mix-scene-idle: 18%;
+
   /* Emphasis. */
   --opacity-muted: 0.5;
   --opacity-soft: 0.7;

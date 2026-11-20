@@ -127,3 +127,42 @@ describe("stored values MIDI cannot carry", () => {
     expect(a.warnings.join("\n")).toMatch(/above 127: Synth 1 pattern 1 \(1\)/);
   });
 });
+
+describe("playing one scene or one pattern", () => {
+  const project = (): Uint8Array => {
+    const b = blankProject();
+    putNote(b, 0, 0, 0, 0, 60, 6, 0, 100);   // Synth 1 pattern 1: C4
+    putNote(b, 0, 1, 0, 0, 67, 6, 0, 100);   // Synth 1 pattern 2: G4
+    putHit(b, 0, 0, 0, 100);                  // Drum 1 pattern 1
+    putHit(b, 0, 1, 4, 90);                   // Drum 1 pattern 2
+    return b;
+  };
+  const pitches = (a: ReturnType<typeof arrange>, t: number): number[] => a.tracks[t]!.notes.map((n) => n.pitch);
+
+  it("plays the chosen pattern on every track, whatever the stored chains say", () => {
+    const b = project();
+    setChain(b, 1, 0, 0);                     // Synth 1's stored chain: pattern 1 only
+    const a = arrange(N.openProject(b), { pattern: 2 });
+    expect(pitches(a, 0)).toEqual([67]);
+    expect(a.tracks[4]!.notes).toHaveLength(1);
+    expect(a.tracks[4]!.notes[0]!.tick).toBe(4 * 120);
+  });
+
+  it("plays one scene with the chains stored in it, saved or not (with a warning when not)", () => {
+    const b = project();
+    const o = N.SCENE0 + 2 * N.SCENE_SIZE;     // scene 3: Synth 1 plays pattern 2
+    b[o] = 1; b[o + 1] = 1;
+    const a = arrange(N.openProject(b), { scene: 3 });
+    expect(pitches(a, 0)).toEqual([67]);
+    expect(a.warnings.join("\n")).toMatch(/scene 3 is not saved/);
+    b[o + N.SCENE_SAVED] = 1;
+    expect(arrange(N.openProject(b), { scene: 3 }).warnings.join("\n")).not.toMatch(/not saved/);
+  });
+
+  it("refuses numbers that do not exist, and both at once", () => {
+    const p = N.openProject(project());
+    expect(() => arrange(p, { scene: 0 })).toThrow(/scene must be 1–16/);
+    expect(() => arrange(p, { pattern: 9 })).toThrow(/pattern must be 1–8/);
+    expect(() => arrange(p, { scene: 1, pattern: 1 })).toThrow(/not both/);
+  });
+});

@@ -357,7 +357,7 @@ export class ProjectService {
    * The project laid out in time, for playback (same as the exports use). `target` "live" uses the
    * play-along set's channels and kit keys instead of the Circuit's.
    */
-  arrangement(id: string, opts: { source?: "scenes" | "current"; repeats?: number; target?: "circuit" | "live" } = {}): X.Arrangement {
+  arrangement(id: string, opts: { source?: "scenes" | "current"; scene?: number; pattern?: number; repeats?: number; target?: "circuit" | "live" } = {}): X.Arrangement {
     const { target, ...rest } = opts;
     return this.arrange(this.get(id), target === "live" ? { ...rest, channels: X.LIVE_PLAY_CHANNELS, drumNotes: X.LIVE_KIT_KEYS } : rest);
   }

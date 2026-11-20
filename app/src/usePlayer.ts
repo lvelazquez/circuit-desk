@@ -18,6 +18,19 @@ const TARGET_KEY = "circuit-desk.play-target";
 /** circuit: the Circuit's own channels and drum notes. live: the play-along Live set's. */
 export type PlayTarget = "circuit" | "live";
 
+/** What plays: the chains the project was saved with, its scene chain, one scene, or one pattern on every track. */
+export type PlayFrom = { kind: "current" } | { kind: "scenes" } | { kind: "scene"; n: number } | { kind: "pattern"; n: number };
+export const playFromValue = (f: PlayFrom): string => (f.kind === "scene" || f.kind === "pattern" ? `${f.kind}:${f.n}` : f.kind);
+export function parsePlayFrom(v: string): PlayFrom {
+  const [kind, n] = v.split(":");
+  const num = Number(n);
+  if (kind === "scene" && num >= 1 && num <= 16) return { kind, n: num };
+  if (kind === "pattern" && num >= 1 && num <= 8) return { kind, n: num };
+  return { kind: kind === "scenes" ? "scenes" : "current" };
+}
+const arrangementOptions = (f: PlayFrom): { source?: "scenes" | "current"; scene?: number; pattern?: number } =>
+  f.kind === "scene" ? { scene: f.n } : f.kind === "pattern" ? { pattern: f.n } : { source: f.kind };
+
 export interface PortInfo { id: string; name: string }
 export type Heads = ({ pattern: number; step: number } | null)[];
 
@@ -37,6 +50,8 @@ export function usePlayer(projectId: string | null, version: number) {
   const engine = useRef<PreviewEngine | null>(null);
   const preview = portId === PREVIEW_PORT;
   const arr = useRef<Arrangement | null>(null);
+  const [playFrom, setPlayFromState] = useState<PlayFrom>({ kind: "current" });
+  const playFromRef = useRef<PlayFrom>({ kind: "current" });
 
   useEffect(() => {
     setPorts([{ id: PREVIEW_PORT, name: "Built-in preview" }]);
@@ -83,7 +98,7 @@ export function usePlayer(projectId: string | null, version: number) {
     if (!projectId) return;
     if (!preview && !output()) { setError("Choose an output first"); return; }
     try {
-      const a = await call("arrangement", projectId, { source: "current", target });
+      const a = await call("arrangement", projectId, { ...arrangementOptions(playFromRef.current), target });
       if (!a.tracks.some((t) => t.notes.length)) { setError("Nothing to play: the current patterns have no notes"); return; }
       arr.current = a;
       await prepare(a);
@@ -92,6 +107,13 @@ export function usePlayer(projectId: string | null, version: number) {
       sched.current = s; setPlaying(true); setError(null);
     } catch (e) { setError((e as Error).message); }
   }, [projectId, output, clock, send, target, preview, prepare]);
+
+  /** Changes what plays. While playing, the new part starts from its beginning at once. */
+  const choosePlayFrom = useCallback((f: PlayFrom, start = false): void => {
+    playFromRef.current = f; setPlayFromState(f);
+    if (sched.current) { send(sched.current.stop(performance.now())); engine.current?.silence(); sched.current = null; setPlaying(false); setHeads([]); void play(); }
+    else if (start) void play();
+  }, [send, play]);
 
   // Pump the schedule and move the playhead.
   useEffect(() => {
@@ -115,7 +137,7 @@ export function usePlayer(projectId: string | null, version: number) {
   useEffect(() => {
     if (!playing || !projectId) return;
     let live = true;
-    void call("arrangement", projectId, { source: "current", target }).then((a) => {
+    void call("arrangement", projectId, { ...arrangementOptions(playFromRef.current), target }).then((a) => {
       const old = sched.current;
       if (!live || !old) return;
       void prepare(a); // new sample flips load in the background; until then they use the track's sample
@@ -133,5 +155,5 @@ export function usePlayer(projectId: string | null, version: number) {
 
   const choosePort = (id: string): void => { if (playing) stop(); setPortId(id || null); if (id) remember(PORT_KEY, id); };
   const chooseTarget = (t: PlayTarget): void => { if (playing) stop(); setTarget(t); remember(TARGET_KEY, t); };
-  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error, liveOutput: output };
+  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error, liveOutput: output, playFrom, choosePlayFrom };
 }

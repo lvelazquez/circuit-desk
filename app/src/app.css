@@ -44,7 +44,8 @@ button, input, select { font: inherit; color: inherit; }
 
 .patterns { display: grid; grid-template-columns: repeat(8, var(--size-pad)); gap: var(--space-xs); margin-bottom: var(--space-md); }
 .pattern-pad { height: var(--size-pattern-pad); border-radius: var(--radius-pad); border: var(--size-border) solid var(--color-border-subtle); background: var(--color-surface-pad); cursor: pointer; font-size: var(--font-size-sm); }
-.pattern-pad[data-used="true"] { border-color: var(--track); }
+.pattern-pad[data-used="true"] { border-color: var(--track); background: color-mix(in srgb, var(--track) var(--mix-used), var(--color-surface-pad)); }
+.pattern-pad[data-playing="true"] { box-shadow: inset 0 0 0 var(--size-border-strong) var(--color-playhead); }
 .pattern-pad[aria-checked="true"] { background: var(--track); color: var(--color-text-on-accent); }
 
 .grid { display: grid; grid-template-columns: repeat(8, var(--size-pad)); gap: var(--space-xs); }
@@ -61,6 +62,17 @@ button, input, select { font: inherit; color: inherit; }
 .pad.key { background: var(--color-surface-raised); }
 .pad.key[data-black="true"] { background: var(--color-surface-key-black); }
 .pad.key[aria-pressed="true"] { background: var(--track); color: var(--color-text-on-accent); }
+/* Keyboard rows read like the device: a pitch the pattern uses is tinted, C is marked, the held note is solid. */
+.pad.key[data-used="true"] { background: color-mix(in srgb, var(--track) var(--mix-used), var(--color-surface-raised)); }
+.pad.key[data-root="true"] { border-color: var(--track); background: color-mix(in srgb, var(--track) var(--mix-root), var(--color-surface-raised)); }
+.pad.key[data-root="true"][data-used="true"] { background: color-mix(in srgb, var(--track) calc(var(--mix-used) + var(--mix-root)), var(--color-surface-raised)); }
+.pad.key[aria-pressed="true"] { background: var(--track); }
+/* Velocity: a bar along the bottom of a lit pad, so the colour stays the track's and the text stays readable. */
+.pad[data-on="true"][style*="--vel"]::after { content: ""; position: absolute; left: var(--space-xs); bottom: var(--space-xs); height: var(--size-xs-note);
+  width: calc((100% - 2 * var(--space-xs)) * var(--vel)); background: var(--color-text-on-accent); opacity: var(--opacity-soft); border-radius: var(--radius-control); }
+/* Scenes: a saved scene is lit in the scene colour, an empty one carries a hint of it. */
+.pad.scene:not([data-on="true"]) { background: color-mix(in srgb, var(--track) var(--mix-scene-idle), var(--color-surface-pad)); }
+.pad.scene[data-outside="true"]:not([data-on="true"]) { background: var(--color-outside-range); }
 
 .knobs { display: grid; grid-template-columns: repeat(8, var(--size-pad)); gap: var(--space-xs); margin-top: var(--space-lg); }
 .knob { display: grid; justify-items: center; gap: var(--space-2xs); color: var(--color-text-disabled); font-size: var(--font-size-xs); }

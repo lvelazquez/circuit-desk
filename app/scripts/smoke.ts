@@ -211,6 +211,23 @@ async function run(): Promise<void> {
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Play')).click()`);
   check("Play sends the pattern's notes with timestamps", await until(`window.__sent.some(m => m.bytes[0] === 0x90 && m.bytes[1] === 60 && m.at > 0)`), JSON.stringify(await js(`window.__sent.slice(0, 3)`)));
   check("the playhead shows on the grid", await until(`!!document.querySelector('.pad[data-playing=true]')`));
+  // Cells read like the device: velocity bar on lit steps, C keys marked, used pitches tinted.
+  const bar = await js<string>(`getComputedStyle(document.querySelector('.grid .pad[data-on=true]'), '::after').content`);
+  check("a lit step shows its velocity as a bar", bar !== "none" && bar !== "normal" && bar !== "", bar);
+  const keyColours = await js<string[]>(`(() => { const bg = (e) => getComputedStyle(e).backgroundColor; const bd = (e) => getComputedStyle(e).borderColor;
+    const root = document.querySelector('.pad.key[data-root=true][data-used=false]'), plain = document.querySelector('.pad.key[data-root=false][data-used=false][data-black=false]'), used = document.querySelector('.pad.key[data-used=true][data-root=false]');
+    return [root ? bd(root) : 'none', plain ? bd(plain) : 'none', used ? bg(used) : 'none', plain ? bg(plain) : 'none']; })()`);
+  check("C keys have their own border, and the pitches a pattern uses are tinted", keyColours[0] !== keyColours[1] && keyColours[2] !== keyColours[3], keyColours.join(" | "));
+  // What plays: changing it while playing starts the chosen part, and the pattern pad shows it.
+  const chooseFrom = (v: string): Promise<unknown> => js(`(() => { const s = document.getElementById('play-from'); s.value = '${v}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await js(`window.__sent.length = 0`);
+  await chooseFrom("scene:2");
+  check("choosing a scene while playing plays it", await until(`document.getElementById('play-from').value === 'scene:2' && window.__sent.some(m => m.bytes[0] === 0x90) && !document.querySelector('[role=alert]')`),
+    await js<string>(`document.querySelector('[role=alert]')?.textContent ?? ''`));
+  await chooseFrom("pattern:1");
+  check("choosing a pattern plays it on every track and marks its pad", await until(`!!document.querySelector('.pattern-pad[data-playing=true]') && !document.querySelector('[role=alert]')`),
+    await js<string>(`document.querySelector('[role=alert]')?.textContent ?? ''`));
+  await chooseFrom("current");
   const shotPlaying = path.join(home, "playing.png");
   writeFileSync(shotPlaying, (await wc.capturePage()).toPNG());
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Stop')).click()`);

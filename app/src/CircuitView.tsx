@@ -1,7 +1,7 @@
 // The device-like view: track buttons, pattern pads, the 4 × 8 pad grid and the macro knobs.
 // Note tracks: rows 1–2 are 16 steps (page 1–16 or 17–32), rows 3–4 a 16-key keyboard.
 // Drum tracks: all 32 steps.
-import type { KeyboardEvent } from "react";
+import type { CSSProperties, KeyboardEvent } from "react";
 import type { NoteStepIn, TrackName } from "@circuit-desk/core-service";
 import type { DrumPatternData, NotePatternData, PatternData, Summary } from "./desk.ts";
 import { isBlackKey, noteName, noteSpoken, stepMap, toggleNote, toggleStep } from "./model.ts";
@@ -19,6 +19,9 @@ export interface CircuitProps {
   page: 0 | 1;
   octave: number;
   currentNote: number;
+  /** The pattern this track is playing now, if it is playing. */
+  playingPattern: number | null;
+  onPlayPattern: (n: number) => void;
   onTrack: (t: TrackName) => void;
   onPattern: (p: number) => void;
   onSelectStep: (s: number) => void;
@@ -60,7 +63,10 @@ export function CircuitView(p: CircuitProps) {
       <div>
         <RadioRow label="Pattern" items={[1, 2, 3, 4, 5, 6, 7, 8]} value={p.pattern} onChange={p.onPattern}
           render={(n) => `${n}${used.has(n) ? " •" : ""}`} className="patterns" itemClass="pattern-pad"
-          extra={(n) => ({ "data-used": used.has(n), "aria-label": `Pattern ${n}${used.has(n) ? ", has notes" : ", empty"}` })} />
+          extra={(n) => ({ "data-used": used.has(n), "data-playing": n === p.playingPattern, "aria-label": `Pattern ${n}${used.has(n) ? ", has notes" : ", empty"}${n === p.playingPattern ? ", playing" : ""}` })} />
+        <div className="row">
+          <button type="button" className="btn btn-small" onClick={() => p.onPlayPattern(p.pattern)}>▶ Play pattern {p.pattern} on all tracks</button>
+        </div>
         {p.data.kind === "notes" ? <NoteGrid {...p} data={p.data} /> : <DrumPads {...p} data={p.data} />}
         <div className="knobs" aria-label="Macro knobs (read-only: synth patches are not decoded yet)" role="group">
           {Array.from({ length: 8 }, (_, k) => <div key={k} className="knob" aria-disabled="true"><span aria-hidden="true" /><span>Macro {k + 1}</span></div>)}
@@ -72,6 +78,7 @@ export function CircuitView(p: CircuitProps) {
 
 function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
   const notes = stepMap(p.data.steps);
+  const usedPitches = new Set([...notes.values()].flatMap((ns) => ns.map((n) => n.note)));
   const roving = useRoving(4, 8);
   const first = p.data.settings.firstStep, last = p.data.settings.lastStep;
   const stepAt = (cell: number): number => p.page * 16 + cell + 1;
@@ -123,6 +130,7 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
                 return (
                   <div role="gridcell" key={cell} style={{ display: "contents" }}>
                     <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)}
+                      style={ns.length ? ({ "--vel": Math.max(...ns.map((n) => n.velocity)) / 127 } as CSSProperties) : undefined}
                       data-on={ns.length > 0} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
                       aria-pressed={ns.length > 0} aria-current={p.selectedStep === s}
                       aria-label={`Step ${s}: ${ns.length ? ns.map((n) => noteSpoken(n.note)).join(", ") : "empty"}${outside ? ", outside the pattern" : ""}`}
@@ -137,7 +145,7 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
               const key = keyAt(cell), held = selected.some((n) => n.note === key);
               return (
                 <div role="gridcell" key={cell} style={{ display: "contents" }}>
-                  <button ref={roving.ref(cell)} type="button" className="pad key" tabIndex={roving.tabIndex(cell)} data-black={isBlackKey(key)}
+                  <button ref={roving.ref(cell)} type="button" className="pad key" tabIndex={roving.tabIndex(cell)} data-black={isBlackKey(key)} data-root={key % 12 === 0} data-used={usedPitches.has(key)}
                     aria-pressed={held} aria-label={`Key ${noteSpoken(key)}${held ? ", in the selected step" : ""}${key === p.currentNote ? ", current note" : ""}`}
                     disabled={key > 127} onClick={() => { roving.setActive(cell); pressKey(key); }} onKeyDown={(e) => onKeyDown(cell, e)}>
                     <span aria-hidden="true">{noteName(key)}{key === p.currentNote ? " ●" : ""}</span>
@@ -170,7 +178,7 @@ function DrumPads(p: CircuitProps & { data: DrumPatternData }) {
               const cell = r * 8 + c, s = cell + 1, h = hits.get(s), outside = s < first || s > last;
               return (
                 <div role="gridcell" key={cell} style={{ display: "contents" }}>
-                  <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)} data-on={!!h} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
+                  <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)} style={h ? ({ "--vel": h.velocity / 127 } as CSSProperties) : undefined} data-on={!!h} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
                     aria-pressed={!!h} aria-current={p.selectedStep === s}
                     aria-label={`Step ${s}: ${h ? `hit, velocity ${h.velocity}` : "empty"}${outside ? ", outside the pattern" : ""}`}
                     onClick={() => { roving.setActive(cell); toggle(s); }}
