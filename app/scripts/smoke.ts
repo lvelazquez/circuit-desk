@@ -90,8 +90,16 @@ async function run(): Promise<void> {
   await js(`${step1}.focus()`);
   await key("Space");
   check("Space on step 1 puts the current note there", await until(`${step1}.getAttribute('aria-pressed') === 'true'`), await js<string>(`${step1}.getAttribute('aria-label')`));
+  // The held key is solid in the track colour, even when it is also the root or a used pitch.
+  const held = await js<{ bg: string; track: string } | null>(`(() => { const k = document.querySelector('.pad.key[aria-pressed=true]'); if (!k) return null;
+    const probe = document.createElement('div'); probe.style.background = 'var(--track)'; k.appendChild(probe); const track = getComputedStyle(probe).backgroundColor; probe.remove();
+    return { bg: getComputedStyle(k).backgroundColor, track }; })()`);
+  check("the held key is solid in the track colour", !!held && held.bg === held.track, JSON.stringify(held));
   await key("Right");
   check("arrow key moves focus to step 2", (await js<string>(`document.activeElement.getAttribute('aria-label')`)).startsWith("Step 2:"));
+  // The project name stays readable in the toolbar (it once shrank to one letter).
+  const nameWidth = await js<number>(`document.querySelector('.project-name').getBoundingClientRect().width`);
+  check("the project name is readable in the toolbar", nameWidth >= 120, `${Math.round(nameWidth)} px: ${await js<string>(`document.querySelector('.project-name').textContent`)}`);
 
   menuClick("Undo");
   check("Edit › Undo removes it", await until(`${step1}.getAttribute('aria-pressed') === 'false'`));
@@ -178,6 +186,8 @@ async function run(): Promise<void> {
   for (const v of ["Circuit", "Editor", "Scenes", "Mixer", "Project", "Patch", "Pack"]) {
     await js(`[...document.querySelectorAll('button')].find(b => b.textContent === '${v}').click()`);
     await wait(600);
+    // A screenshot of every view, for comparing the UI before and after a change.
+    writeFileSync(path.join(home, `view-${v.toLowerCase()}.png`), (await wc.capturePage()).toPNG());
     untipped.push(...await js<string[]>(`[...document.querySelectorAll('.app button, .app select, .app input, .app [role=application], .app .lane-points')]
       .filter(e => !e.closest('[data-tip]')).map(e => '${v}: ' + (e.getAttribute('aria-label') || e.textContent.trim().slice(0, 30) || e.id || e.tagName)).slice(0, 6)`));
   }
@@ -447,6 +457,7 @@ async function run(): Promise<void> {
   writeFileSync(shot2, (await wc.capturePage()).toPNG());
   console.log(results.join("\n"));
   console.log(`screenshots: ${shot} ${shot2} ${shotPlaying} ${shot3}`);
+  console.log(`view screenshots: ${home}/view-*.png`);
 }
 
 void app.whenReady().then(() => setTimeout(() => {

@@ -7,6 +7,7 @@ import { playheads, Schedule, type TimedMessage } from "@circuit-desk/playback";
 import { appOutput, audioContext, novaRender, packLoader } from "./audio.ts";
 import { logEvent } from "./capture.ts";
 import { call } from "./desk.ts";
+import { setHeads } from "./playheads.ts";
 
 /** The built-in preview engine's entry in the output list. */
 export const PREVIEW_PORT = "preview";
@@ -33,7 +34,6 @@ const arrangementOptions = (f: PlayFrom): { source?: "scenes" | "current"; scene
   f.kind === "scene" ? { scene: f.n } : f.kind === "pattern" ? { pattern: f.n } : { source: f.kind };
 
 export interface PortInfo { id: string; name: string }
-export type Heads = ({ pattern: number; step: number } | null)[];
 
 function remembered(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
 function remember(key: string, v: string): void { try { localStorage.setItem(key, v); } catch { /* a per-viewer convenience only */ } }
@@ -45,7 +45,6 @@ export function usePlayer(projectId: string | null, version: number) {
   const [target, setTarget] = useState<PlayTarget>(remembered(TARGET_KEY) === "live" ? "live" : "circuit");
   const [playing, setPlaying] = useState(false);
   const [clock, setClock] = useState(false);
-  const [heads, setHeads] = useState<Heads>([]);
   const [error, setError] = useState<string | null>(null);
   const sched = useRef<Schedule | null>(null);
   const engine = useRef<PreviewEngine | null>(null);
@@ -179,5 +178,5 @@ export function usePlayer(projectId: string | null, version: number) {
 
   const choosePort = (id: string): void => { if (playing) stop(); setPortId(id || null); if (id) remember(PORT_KEY, id); };
   const chooseTarget = (t: PlayTarget): void => { if (playing) stop(); setTarget(t); remember(TARGET_KEY, t); };
-  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error, liveOutput: output, playFrom, choosePlayFrom, fx, setFx, muted, solo, toggleMute, toggleSolo };
+  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, error, liveOutput: output, playFrom, choosePlayFrom, fx, setFx, muted, solo, toggleMute, toggleSolo };
 }

@@ -62,6 +62,8 @@
   --size-velocity-lane: 64px;
   --size-lane: 36px;
   --size-toolbar-select: 180px;
+  /* The toolbar never squeezes the project name below this. */
+  --size-project-name: 160px;
   --size-strip: 150px;
   --size-fx-panel: 230px;
   --size-slider-value: 36px;

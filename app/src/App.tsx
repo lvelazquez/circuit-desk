@@ -1,7 +1,7 @@
 // The window: library on the left, the Circuit or Editor view in the middle, the inspector on the
 // right. All project state lives in the main process; this keeps only what is on screen and
 // reloads it after every edit.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Direction, DrumStepIn, DrumTrackName, NoteStepIn, SyncRate, TrackName } from "@circuit-desk/core-service";
 import type { MenuCommand } from "../electron/api.ts";
 import { CircuitView } from "./CircuitView.tsx";
@@ -17,7 +17,7 @@ import { Inspector } from "./Inspector.tsx";
 import { Library } from "./Library.tsx";
 import { PackView } from "./PackView.tsx";
 import { ScenesView } from "./ScenesView.tsx";
-import { DRUM_NAMES, isDrum, isNoteTrack, TRACK_NAMES } from "./tracks.ts";
+import { DRUM_NAMES, isDrum, isNoteTrack } from "./tracks.ts";
 import { encodeWav, renderOffline } from "@circuit-desk/engine";
 import { novaRender } from "./audio.ts";
 import { buildReport } from "./capture.ts";
@@ -70,6 +70,7 @@ export function App() {
 
   const fail = (e: unknown): void => setStatus({ text: (e as Error).message, error: true });
   // Note names on screen are the pitches stored notes sound at: stored + the scale root.
+  // Set during render on purpose: children name notes in this same pass, and the call is idempotent.
   setNoteRoot(settings?.scale.root ?? 0);
   const player = usePlayer(projectId, version);
 
@@ -118,11 +119,6 @@ export function App() {
   }, [projectId, track, packChoice, version, firmware]);
   const keys = useKeyboardPlayer(keySound, player.liveOutput);
   const choosePackPatch = (p: PackPatchChoice): void => { setPackChoice(p); window.setTimeout(() => void keys.audition(), 0); };
-  /** The step playing on `t`, if it is playing the pattern on screen. */
-  const playStep = (t: TrackName): number | null => {
-    const h = player.heads[TRACK_NAMES.indexOf(t as (typeof TRACK_NAMES)[number])];
-    return h && h.pattern === pattern ? h.step : null;
-  };
 
   useEffect(() => {
     void (async () => {
@@ -136,37 +132,47 @@ export function App() {
     })();
   }, []);
 
-  // Reload what is on screen whenever the project, track, pattern or an edit changes.
+  // Project-wide data: on opening a project and after each edit.
   useEffect(() => {
     if (!projectId) return;
     let live = true;
-    void (async () => {
-      try {
-        const [s, d, sc, ds, st] = await Promise.all([
-          call("summary", projectId), call("getPattern", projectId, track, pattern), call("getScenes", projectId),
-          Promise.all(DRUM_NAMES.map((n) => call("getPattern", projectId, n, pattern))), call("settings", projectId),
-        ]);
-        if (!live) return;
-        setSummary(s); setData(d); setScenes(sc); setSettings(st); setDrums(ds.filter((x): x is DrumPatternData => x.kind === "drums"));
-      } catch (e) { if (live) fail(e); }
-    })();
+    void Promise.all([call("summary", projectId), call("getScenes", projectId), call("settings", projectId)]).then(([s, sc, st]) => {
+      if (live) { setSummary(s); setScenes(sc); setSettings(st); }
+    }, (e: unknown) => { if (live) fail(e); });
+    return () => { live = false; };
+  }, [projectId, version]);
+  // The pattern on screen and the four drum patterns: also when the track or pattern changes.
+  useEffect(() => {
+    if (!projectId) return;
+    let live = true;
+    void Promise.all([
+      isDrum(track) ? Promise.resolve(null) : call("getPattern", projectId, track, pattern),
+      Promise.all(DRUM_NAMES.map((n) => call("getPattern", projectId, n, pattern))),
+    ]).then(([d, ds]) => {
+      if (!live) return;
+      const drumData = ds.filter((x): x is DrumPatternData => x.kind === "drums");
+      setDrums(drumData);
+      // A drum track's own pattern is one of the four already fetched.
+      setData(d ?? drumData[DRUM_NAMES.indexOf(track as (typeof DRUM_NAMES)[number])] ?? null);
+    }, (e: unknown) => { if (live) fail(e); });
     return () => { live = false; };
   }, [projectId, track, pattern, version]);
 
   const open = useCallback(async (path: string) => {
     try {
       const { id } = await call("openProject", path);
-      setProjectId(id); setStep(null); setDrumSel(null);
+      setProjectId(id); setStep(null); setDrumSel(null); setPackChoice(null);
       setStatus({ text: `Opened ${path.split("/").pop() ?? path}` });
     } catch (e) { fail(e); }
   }, []);
 
-  const edit = useCallback(async (label: string, f: () => Promise<unknown>) => {
+  const edit = useCallback(async (label: string, f: () => Promise<unknown>): Promise<boolean> => {
     try {
       await f();
       setVersion((v) => v + 1);
       setStatus({ text: `Edited: ${label}` });
-    } catch (e) { fail(e); }
+      return true;
+    } catch (e) { fail(e); return false; }
   }, []);
 
   /** A lane edit: the whole lane goes to the service as one undoable change. */
@@ -259,7 +265,7 @@ export function App() {
   const loadPackPatch = (c: PackPatchChoice, synth: 1 | 2): void => {
     if (!projectId) return;
     void edit(`loaded "${c.name}" from bank ${c.bank + 1} into Synth ${synth}`, () => call("loadPackPatch", projectId, synth, c.bank, c.record))
-      .then(() => { chooseTrack(synth === 1 ? "Synth 1" : "Synth 2"); setView("patch"); });
+      .then((ok) => { if (ok) { chooseTrack(synth === 1 ? "Synth 1" : "Synth 2"); setView("patch"); } });
   };
   /** The synth the Patch view edits: the current track when it is a synth, else Synth 1. */
   const patchSynth: 1 | 2 = track === "Synth 2" ? 2 : 1;
@@ -275,9 +281,8 @@ export function App() {
     if (projectId) void edit(`${label} (patch fields are partial: saved to copies)`, () => call("setPatchParams", projectId, patchSynth, changes, name));
   };
 
-  useEffect(() => {
-    try {
-      return bridge().onMenu((command: MenuCommand) => {
+  const onMenu = useRef<(command: MenuCommand) => void>(() => undefined);
+  onMenu.current = (command: MenuCommand): void => {
         const text = isTextField(document.activeElement);
         if (command === "undo") { if (text) document.execCommand("undo"); else void undo(); }
         else if (command === "redo") { if (text) document.execCommand("redo"); else void undo(true); }
@@ -296,9 +301,10 @@ export function App() {
         }
         else if (command === "play") { if (player.playing) player.stop(); else void player.play(); }
         else if (command === "capture") void capture();
-      });
-    } catch { return undefined; }
-  }, [undo, pick, saveCopy, exportTo, exportAudio, exportSyx, player, readFirmware, capture]);
+  };
+  useEffect(() => {
+    try { return bridge().onMenu((command: MenuCommand) => onMenu.current(command)); } catch { return undefined; }
+  }, []);
 
   const chooseTrack = (t: TrackName): void => { setTrack(t); setStep(null); setPackChoice(null); };
   const choosePattern = (n: number): void => { setPattern(n); setStep(null); setDrumSel(null); };
@@ -376,7 +382,7 @@ export function App() {
                 onScene={(n, chains, label) => { if (projectId) void edit(label, () => call("setScene", projectId, n, chains)); }} />
             ) : <p className="empty">Loading…</p>)
             : view === "circuit" ? (
-              <CircuitView scale={settings?.scale ?? null} playingPattern={player.playing ? player.heads[TRACK_NAMES.indexOf(track)]?.pattern ?? null : null} onPlayPattern={(n) => player.choosePlayFrom({ kind: "pattern", n }, true)} playStep={playStep(track)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
+              <CircuitView scale={settings?.scale ?? null} onPlayPattern={(n) => player.choosePlayFrom({ kind: "pattern", n }, true)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
                 onTrack={chooseTrack} onPattern={choosePattern} onSelectStep={setStep} onPage={setPage} onOctave={setOctave} onCurrentNote={setCurrentNote}
                 onNoteSteps={onNoteSteps} onDrumStep={(s, velocity, label) => { if (isDrum(track)) onDrumSteps(track, [{ step: s, velocity }], label); }} />
             ) : (
@@ -393,11 +399,11 @@ export function App() {
                     </select>
                   </label>
                 </div>
-                {data.kind === "notes" ? <PianoRoll projectId={projectId} version={version} playStep={playStep(track)} track={track} pattern={pattern} data={data} onNoteSteps={onNoteSteps} onLaneEdit={onLaneEdit} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} />
+                {data.kind === "notes" ? <PianoRoll projectId={projectId} version={version} track={track} pattern={pattern} data={data} onNoteSteps={onNoteSteps} onLaneEdit={onLaneEdit} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} />
                   : <p className="hint">Choose a Synth or MIDI track for the piano roll.</p>}
                 <h2 className="visually-hidden">Drums</h2>
                 <div style={{ marginTop: "var(--space-xl)" }}>
-                  <DrumGrid playSteps={DRUM_NAMES.map(playStep)} pattern={pattern} drums={drums} selected={drumSel} onSelect={(d, s) => setDrumSel({ drum: d, step: s })} onDrumSteps={onDrumSteps} />
+                  <DrumGrid pattern={pattern} drums={drums} selected={drumSel} onSelect={(d, s) => setDrumSel({ drum: d, step: s })} onDrumSteps={onDrumSteps} />
                   <DrumAutomation projectId={projectId} version={version} pattern={pattern} onLaneEdit={onLaneEdit} />
                 </div>
               </>

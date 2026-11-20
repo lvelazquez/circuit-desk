@@ -1,11 +1,12 @@
 // DAW-style editing: a piano roll with a velocity lane for note tracks, a drum grid for all four
 // drums of a pattern. Every edit goes through the same service calls as the Circuit view, so the
 // device's limits (6 notes a step, 32 steps, sixth-of-a-step timing) always hold.
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import type { DrumStepIn, DrumTrackName, NoteStepIn, TrackName } from "@circuit-desk/core-service";
 import { call, type Automation, type DrumPatternData, type NotePatternData } from "./desk.ts";
 import { clamp, isBlackKey, moveNote, noteName, noteSpoken, rollRange, STEPS, stepMap, toggleNote, updateNote } from "./model.ts";
-import { DRUM_NAMES, trackStyle } from "./tracks.ts";
+import { DRUM_NAMES, TRACK_NAMES, trackStyle } from "./tracks.ts";
+import { usePlayStep, usePlaySteps } from "./playheads.ts";
 import { useRoving } from "./useRoving.ts";
 
 /** Grid positions go to CSS as counts; the sizes are the --size-roll-* tokens. */
@@ -17,12 +18,15 @@ const RESIZE_ZONE = 0.35;
 interface Drag { mode: "move" | "resize"; step: number; pitch: number; x0: number; p0: number; dStep: number; dPitch: number; dGate: number; moved: boolean }
 
 /** Notes are drawn at least this opaque, reaching full at velocity 127, so soft notes stay visible. */
+/** Drum 1–4 are tracks 4–7 in the playhead store. */
+const DRUM_TRACKS = [4, 5, 6, 7] as const;
 const VELOCITY_ALPHA_FLOOR = 0.45;
 
-export function PianoRoll({ projectId, version, track, pattern, data, onNoteSteps, onSelectStep, playStep, onLaneEdit }: {
-  projectId: string | null; version: number; track: TrackName; playStep: number | null; pattern: number; data: NotePatternData;
+export function PianoRoll({ projectId, version, track, pattern, data, onNoteSteps, onSelectStep, onLaneEdit }: {
+  projectId: string | null; version: number; track: TrackName; pattern: number; data: NotePatternData;
   onNoteSteps: (steps: NoteStepIn[], label: string) => void; onSelectStep: (s: number) => void; onLaneEdit: LaneEdit;
 }) {
+  const playStep = usePlayStep(TRACK_NAMES.indexOf(track), pattern);
   const notes = stepMap(data.steps);
   const all = data.steps.flatMap((s) => s.notes.map((n) => ({ ...n, step: s.step })));
   const [cursor, setCursor] = useState<{ step: number; pitch: number }>(() => ({ step: 1, pitch: all[0]?.note ?? 60 }));
@@ -164,15 +168,16 @@ export function PianoRoll({ projectId, version, track, pattern, data, onNoteStep
   );
 }
 
-export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps, playSteps }: {
-  pattern: number; playSteps: (number | null)[]; drums: readonly DrumPatternData[]; selected: { drum: DrumTrackName; step: number } | null;
+export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps }: {
+  pattern: number; drums: readonly DrumPatternData[]; selected: { drum: DrumTrackName; step: number } | null;
   onSelect: (drum: DrumTrackName, step: number) => void; onDrumSteps: (drum: DrumTrackName, steps: DrumStepIn[], label: string) => void;
 }) {
+  const playSteps = usePlaySteps(DRUM_TRACKS, pattern);
   const roving = useRoving(4, STEPS);
   return (
     <section aria-label={`Drums, pattern ${pattern}`}>
       <div className="drum-scroll">
-      <div role="grid" aria-label={`Drums, pattern ${pattern}`} aria-describedby="drumgrid-help" className="drum-grid">
+      <div role="grid" aria-label={`Drums, pattern ${pattern}`} aria-describedby="drum-grid-help" className="drum-grid">
         {DRUM_NAMES.map((name, r) => {
           const d = drums[r];
           const hits = new Map((d?.steps ?? []).map((s) => [s.step, s]));
@@ -200,7 +205,7 @@ export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps, play
         })}
       </div>
       </div>
-      <p id="drumgrid-help" className="hint">Arrow keys move between drums and steps; Enter, Space or a click adds or removes a hit. The number on a hit is how many micro-steps sound.</p>
+      <p id="drum-grid-help" className="hint">Arrow keys move between drums and steps; Enter, Space or a click adds or removes a hit. The number on a hit is how many micro-steps sound.</p>
     </section>
   );
 }
@@ -209,6 +214,8 @@ export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps, play
 export type LaneEdit = (track: TrackName, lane: number, points: (number | null)[], label: string) => void;
 
 const LANE_POINTS = 192;
+/** An empty automation lane, shared so a lane with no points keeps the same array between renders. */
+const EMPTY_LANE: readonly (number | null)[] = Object.freeze(new Array<number | null>(LANE_POINTS).fill(null));
 
 /**
  * The pattern's automation lanes, aligned with the piano roll: 6 points a step, 0–127, gaps where
@@ -219,6 +226,7 @@ export function AutomationLanes({ projectId, version, track, pattern, onLaneEdit
 }) {
   const [auto, setAuto] = useState<Automation | null>(null);
   const [added, setAdded] = useState<number[]>([]);
+  const helpId = useId();
   useEffect(() => {
     if (!projectId) return;
     let live = true;
@@ -229,13 +237,12 @@ export function AutomationLanes({ projectId, version, track, pattern, onLaneEdit
   if (!auto) return null;
   const shown = [...new Set([...auto.lanes.map((l) => l.lane), ...added])].sort((x, y) => x - y);
   const free = auto.names.map((name, k) => ({ lane: k + 1, name })).filter((x) => !shown.includes(x.lane));
-  const empty = (): (number | null)[] => new Array<number | null>(LANE_POINTS).fill(null);
   return (
     <div className="automation" role="group" aria-label={`Automation of ${track} pattern ${pattern}, ${auto.lanes.length} of ${auto.laneCount} lanes in use (${auto.evidence})`}>
       <p className="lane-note">These lanes play in the built-in preview and go to a Circuit as CC. A value holds until the next point.</p>
       {shown.map((lane) => (
         <LaneEditor key={`${track}-${pattern}-${lane}`} lane={lane} name={auto.names[lane - 1] ?? `Lane ${lane}`}
-          points={auto.lanes.find((l) => l.lane === lane)?.points ?? empty()}
+          points={auto.lanes.find((l) => l.lane === lane)?.points ?? EMPTY_LANE} helpId={helpId}
           onCommit={(pts, label) => onLaneEdit(track, lane, pts, label)} />
       ))}
       {free.length > 0 && (
@@ -247,7 +254,7 @@ export function AutomationLanes({ projectId, version, track, pattern, onLaneEdit
           </select>
         </label>
       )}
-      <p id="lane-help" className="hint">
+      <p id={helpId} className="hint">
         Click or drag in a lane to draw (Alt erases). In a focused lane, arrows move the cursor (Shift: a whole step); Up and Down change the value (Shift: by 10);
         Delete removes the point (Shift: the whole step); Enter fills the step with the cursor's value.
       </p>
@@ -261,7 +268,7 @@ function heldAt(points: readonly (number | null)[], k: number, fallback: number)
   return fallback;
 }
 
-function LaneEditor({ lane, name, points, onCommit }: { lane: number; name: string; points: (number | null)[]; onCommit: (pts: (number | null)[], label: string) => void }) {
+function LaneEditor({ lane, name, points, helpId, onCommit }: { lane: number; name: string; points: readonly (number | null)[]; helpId: string; onCommit: (pts: (number | null)[], label: string) => void }) {
   const [draft, setDraft] = useState<(number | null)[] | null>(null);
   const draftRef = useRef<(number | null)[] | null>(null);
   const [cursor, setCursor] = useState(0);
@@ -343,7 +350,7 @@ function LaneEditor({ lane, name, points, onCommit }: { lane: number; name: stri
   return (
     <div className="lane-row">
       <div ref={ref} className="lane-points" tabIndex={0} role="group" data-focused={focused} data-tip={`Lane ${lane}, ${name}: drag to draw (Alt erases). Focused: Left/Right move, Up/Down change the value, Delete removes. A value holds until the next point; 6 points per step.`}
-        aria-label={`Lane ${lane}, ${name}: ${summary}`} aria-describedby="lane-help"
+        aria-label={`Lane ${lane}, ${name}: ${summary}`} aria-describedby={helpId}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
         onKeyDown={onKeyDown} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}>
         {shown.map((v, k) => <i key={k} data-empty={v === null} data-cursor={focused && k === cursor} style={vars({ level: (v ?? 0) / 127 })} />)}

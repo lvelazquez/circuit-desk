@@ -10,6 +10,7 @@ import { SCALE_NAMES, type ScaleSetting } from "@circuit-desk/ncs";
 import { isBlackKey, keyboardNote, noteName, noteSpoken, stepMap, toggleNote, toggleStep } from "./model.ts";
 import { TRACK_NAMES, trackStyle } from "./tracks.ts";
 import { useRoving } from "./useRoving.ts";
+import { usePlayStep, usePlayingPattern } from "./playheads.ts";
 
 export interface CircuitProps {
   summary: Summary;
@@ -19,13 +20,9 @@ export interface CircuitProps {
   pattern: number;
   data: PatternData;
   selectedStep: number | null;
-  /** The step playing in this pattern, if it is playing. */
-  playStep: number | null;
   page: 0 | 1;
   octave: number;
   currentNote: number;
-  /** The pattern this track is playing now, if it is playing. */
-  playingPattern: number | null;
   onPlayPattern: (n: number) => void;
   onTrack: (t: TrackName) => void;
   onPattern: (p: number) => void;
@@ -60,6 +57,8 @@ function RadioRow<T>({ label, items, value, onChange, render, className, itemCla
 }
 
 export function CircuitView(p: CircuitProps) {
+  // The playhead comes from its own store (playheads.ts), so a step change redraws this view only.
+  const playingPattern = usePlayingPattern(TRACK_NAMES.indexOf(p.track));
   const used = new Set(p.summary.tracks.find((t) => t.track === p.track)?.patternsWithNotes ?? []);
   return (
     <section className="device" aria-label="Circuit" style={trackStyle(p.track)}>
@@ -68,7 +67,7 @@ export function CircuitView(p: CircuitProps) {
       <div>
         <RadioRow label="Pattern" items={[1, 2, 3, 4, 5, 6, 7, 8]} value={p.pattern} onChange={p.onPattern}
           render={(n) => `${n}${used.has(n) ? " •" : ""}`} className="patterns" itemClass="pattern-pad"
-          extra={(n) => ({ "data-used": used.has(n), "data-playing": n === p.playingPattern, "data-tip": `Edit pattern ${n} of ${p.track}. A dot means it has notes; an outline means it is playing.`, "aria-label": `Pattern ${n}${used.has(n) ? ", has notes" : ", empty"}${n === p.playingPattern ? ", playing" : ""}` })} />
+          extra={(n) => ({ "data-used": used.has(n), "data-playing": n === playingPattern, "data-tip": `Edit pattern ${n} of ${p.track}. A dot means it has notes; an outline means it is playing.`, "aria-label": `Pattern ${n}${used.has(n) ? ", has notes" : ", empty"}${n === playingPattern ? ", playing" : ""}` })} />
         <div className="row">
           <button type="button" className="btn btn-small" onClick={() => p.onPlayPattern(p.pattern)} data-tip="Play this pattern number on all eight tracks at once, looping (sets the play menu to One pattern).">▶ Play pattern {p.pattern} on all tracks</button>
         </div>
@@ -83,6 +82,7 @@ export function CircuitView(p: CircuitProps) {
 }
 
 function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
+  const playStep = usePlayStep(TRACK_NAMES.indexOf(p.track), p.pattern);
   const notes = stepMap(p.data.steps);
   const usedPitches = new Set([...notes.values()].flatMap((ns) => ns.map((n) => n.note)));
   const roving = useRoving(4, 8);
@@ -140,7 +140,7 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
                     <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)}
                       data-tip={`Step ${s}. Click an empty step to add the current note; click a lit one to select it, then press keys below to add or remove notes. Delete clears. The bar shows velocity.${outside ? " Dark: outside the pattern's first–last steps." : ""}`}
                       style={ns.length ? ({ "--vel": Math.max(...ns.map((n) => n.velocity)) / 127 } as CSSProperties) : undefined}
-                      data-on={ns.length > 0} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
+                      data-on={ns.length > 0} data-selected={p.selectedStep === s} data-outside={outside} data-playing={playStep === s}
                       aria-pressed={ns.length > 0} aria-current={p.selectedStep === s}
                       aria-label={`Step ${s}: ${ns.length ? ns.map((n) => noteSpoken(n.note)).join(", ") : "empty"}${outside ? ", outside the pattern" : ""}`}
                       onClick={() => { roving.setActive(cell); p.onSelectStep(s); if (!ns.length) p.onNoteSteps([toggleStep(notes, s, p.currentNote)], `step ${s}`); }}
@@ -183,6 +183,7 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
 }
 
 function DrumPads(p: CircuitProps & { data: DrumPatternData }) {
+  const playStep = usePlayStep(TRACK_NAMES.indexOf(p.track), p.pattern);
   const hits = new Map(p.data.steps.map((s) => [s.step, s]));
   const roving = useRoving(4, 8);
   const first = p.data.settings.firstStep, last = p.data.settings.lastStep;
@@ -196,7 +197,7 @@ function DrumPads(p: CircuitProps & { data: DrumPatternData }) {
               const cell = r * 8 + c, s = cell + 1, h = hits.get(s), outside = s < first || s > last;
               return (
                 <div role="gridcell" key={cell} style={{ display: "contents" }}>
-                  <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)} data-tip={`Step ${s}: click to add or remove a hit. The Inspector edits its velocity, probability and micro-steps.`} style={h ? ({ "--vel": h.velocity / 127 } as CSSProperties) : undefined} data-on={!!h} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
+                  <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)} data-tip={`Step ${s}: click to add or remove a hit. The Inspector edits its velocity, probability and micro-steps.`} style={h ? ({ "--vel": h.velocity / 127 } as CSSProperties) : undefined} data-on={!!h} data-selected={p.selectedStep === s} data-outside={outside} data-playing={playStep === s}
                     aria-pressed={!!h} aria-current={p.selectedStep === s}
                     aria-label={`Step ${s}: ${h ? `hit, velocity ${h.velocity}` : "empty"}${outside ? ", outside the pattern" : ""}`}
                     onClick={() => { roving.setActive(cell); toggle(s); }}

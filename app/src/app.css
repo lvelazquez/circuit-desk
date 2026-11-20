@@ -10,7 +10,7 @@ button, input, select { font: inherit; color: inherit; }
 .app { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-lg); background: var(--color-surface-panel); border-bottom: var(--size-border) solid var(--color-border-subtle); }
 .toolbar h1 { white-space: nowrap; font-size: var(--font-size-lg); font-weight: var(--font-weight-strong); margin: 0 var(--space-md) 0 0; }
-.toolbar .project-name { color: var(--color-text-secondary); margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 0; }
+.toolbar .project-name { color: var(--color-text-secondary); margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: var(--size-project-name); flex: 0 1 auto; }
 .toolbar .row { flex-wrap: nowrap; }
 .btn { white-space: nowrap; background: var(--color-surface-raised); border: var(--size-border) solid var(--color-border-subtle); border-radius: var(--radius-control); padding: var(--space-xs) var(--space-md); cursor: pointer;
   transition: background-color var(--motion-duration-fast) var(--motion-easing-smooth-out); }
@@ -61,12 +61,12 @@ button, input, select { font: inherit; color: inherit; }
 .pad .pad-num { position: absolute; top: var(--space-2xs); left: var(--space-xs); font-size: var(--font-size-xs); opacity: var(--opacity-soft); }
 .pad.key { background: var(--color-surface-raised); }
 .pad.key[data-black="true"] { background: var(--color-surface-key-black); }
-.pad.key[aria-pressed="true"] { background: var(--track); color: var(--color-text-on-accent); }
 /* Keyboard rows read like the device: a pitch the pattern uses is tinted, C is marked, the held note is solid. */
 .pad.key[data-used="true"] { background: color-mix(in srgb, var(--track) var(--mix-used), var(--color-surface-raised)); }
 .pad.key[data-root="true"] { border-color: var(--track); background: color-mix(in srgb, var(--track) var(--mix-root), var(--color-surface-raised)); }
 .pad.key[data-root="true"][data-used="true"] { background: color-mix(in srgb, var(--track) calc(var(--mix-used) + var(--mix-root)), var(--color-surface-raised)); }
-.pad.key[aria-pressed="true"] { background: var(--track); }
+.pad.key[aria-pressed="true"], .pad.key[aria-pressed="true"][data-used="true"], .pad.key[aria-pressed="true"][data-root="true"],
+.pad.key[aria-pressed="true"][data-root="true"][data-used="true"] { background: var(--track); color: var(--color-text-on-accent); }
 /* Velocity: a bar along the bottom of a lit pad, so the colour stays the track's and the text stays readable. */
 .pad[data-on="true"][style*="--vel"]::after { content: ""; position: absolute; left: var(--space-xs); bottom: var(--space-xs); height: var(--size-xs-note);
   width: calc((100% - 2 * var(--space-xs)) * var(--vel)); background: var(--color-text-on-accent); opacity: var(--opacity-soft); border-radius: var(--radius-control); }
