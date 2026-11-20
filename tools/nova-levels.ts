@@ -28,9 +28,12 @@ for (const f of walk(root, /\.cpb$/i)) for (const r of readBank(new Uint8Array(r
 
 /** --no-macros: set every macro depth to 0, to compare with and without the (guessed) macro formula. */
 const noMacros = process.argv.includes("--no-macros");
+/** --no-lfo: zero every mod matrix slot with an LFO source (6–9), to compare with and without the LFOs. */
+const noLfo = process.argv.includes("--no-lfo");
 const prepared = (bytes: Uint8Array): Record<string, number> => {
   const v = parsePatch(bytes).values;
   if (noMacros) for (const id of Object.keys(v)) if (/^macro\d\.[a-d]\.depth$/.test(id)) v[id] = 64;
+  if (noLfo) for (let k = 1; k <= 20; k++) if ([v[`mod${k}.source1`], v[`mod${k}.source2`]].some((x) => x !== undefined && x >= 6 && x <= 9)) v[`mod${k}.depth`] = 64;
   return v;
 };
 

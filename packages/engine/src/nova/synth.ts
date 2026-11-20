@@ -1,6 +1,7 @@
 // One Nova synth part (Synth 1 or 2): a voice pool, the polyphony modes, and an event queue timed
 // in frames so notes land on the exact sample. Pure DSP; the AudioWorklet and tests drive it.
 import { BLOCK, VOICES, Voice, defaultValues, novaParams, type NovaParams } from "./voice.ts";
+import { Lfo } from "./lfo.ts";
 import { PatchFx } from "../fx/patch.ts";
 
 export type NovaEvent =
@@ -28,12 +29,15 @@ export class NovaSynth {
   private mono = new Float32Array(128);
   /** Macro knob positions set by automation; undefined = the patch's stored position. */
   private macros: (number | undefined)[] = [];
+  /** The LFOs every voice follows when an LFO has common sync on. */
+  private readonly common: [Lfo, Lfo] = [new Lfo(97), new Lfo(98)];
+  private readonly commonValues: [number, number] = [0, 0];
 
   constructor(sampleRate: number, values: Readonly<Record<string, number>> = defaultValues()) {
     this.sampleRate = sampleRate;
     this.values = values;
     this.params = novaParams(values);
-    this.voices = Array.from({ length: VOICES }, () => new Voice(sampleRate));
+    this.voices = Array.from({ length: VOICES }, (_, k) => new Voice(sampleRate, k + 1));
     this.fx = new PatchFx(sampleRate);
     this.fx.setValues(values, this.bpm);
   }
@@ -42,14 +46,15 @@ export class NovaSynth {
   setValues(values: Readonly<Record<string, number>>): void {
     this.values = values;
     this.macros = [];
-    this.params = novaParams(values);
+    this.params = novaParams(values, undefined, this.bpm);
     this.fx.setValues(values, this.bpm);
   }
 
-  /** Tempo, for synced chorus rates. */
+  /** Tempo, for synced chorus and LFO rates. */
   setBpm(bpm: number): void {
     if (!(bpm > 0)) return;
     this.bpm = bpm;
+    this.params = novaParams(this.values, this.macros, bpm);
     this.fx.setValues(this.values, bpm);
   }
 
@@ -76,7 +81,12 @@ export class NovaSynth {
       while (this.queue.length && this.queue[0]!.frame <= this.frame + at) this.apply(this.queue.shift()!, this.frame + at);
       const nextEvent = this.queue.length ? this.queue[0]!.frame - this.frame : out.length;
       const n = Math.max(1, Math.min(BLOCK, out.length - at, nextEvent - at));
-      for (const v of this.voices) if (v.active) v.render(this.params, out, at, n);
+      const p = this.params;
+      if (p.lfo[0].commonSync || p.lfo[1].commonSync) {
+        // The shared LFOs run whether or not a voice sounds; no per-voice rate modulation here.
+        p.lfo.forEach((l, k) => { this.commonValues[k] = this.common[k]!.advance(l, Lfo.hz(l), n / this.sampleRate); });
+      }
+      for (const v of this.voices) if (v.active) v.render(p, out, at, n, this.commonValues);
       at += n;
     }
     this.frame = end;
@@ -92,7 +102,7 @@ export class NovaSynth {
     }
     if (e.type === "macro") {
       this.macros[e.index] = e.value;
-      this.params = novaParams(this.values, this.macros);
+      this.params = novaParams(this.values, this.macros, this.bpm);
       return;
     }
     if (e.type === "on") this.noteOn(e.note, e.velocity, frame);
@@ -104,6 +114,8 @@ export class NovaSynth {
     this.held = this.held.filter((h) => h.note !== note);
     this.held.push({ note, velocity });
     const from = p.portamento > 0 ? this.lastNote : null;
+    // Common sync with key sync: the shared LFO restarts on every note.
+    p.lfo.forEach((l, k) => { if (l.commonSync) this.common[k]!.trigger(l, this.held.length > 1); });
     this.lastNote = note;
     if (p.polyphony < 2) {
       // Mono: one voice. Mono AG keeps envelopes running while a key is held (legato).

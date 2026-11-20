@@ -11,6 +11,8 @@ export const CURVE_STATUS = {
   levels: "guess: linear",
   dbOffset: "guide: −12…+18 dB in 1 dB steps (pre/post FX level)",
   pitch: "guide: semitones and cents are ±64 around 64",
+  lfoRate: "guess: 0 stops (guide), default 68 ≈ 2.5 Hz, exponential to ≈ 160 Hz",
+  lfoDelay: "guess: like the envelope times",
 } as const;
 
 /** Envelope attack / decay / release, 0–127 → seconds (≈0.5 ms … ≈10 s, exponential). */
@@ -46,4 +48,17 @@ export function dbGain(v: number): number {
 /** A bipolar byte (64 = 0) → −1…+1 (63 steps up, 64 down). */
 export function bipolar(v: number): number {
   return v >= 64 ? (v - 64) / 63 : (v - 64) / 64;
+}
+
+/**
+ * LFO rate, 0–127 → Hz. 0 stops the LFO where it is (UltraNova guide). No measured curve is
+ * published; the shape is exponential like the other rates, with the default 68 near 2.5 Hz.
+ */
+export function lfoRateHz(v: number): number {
+  return v <= 0 ? 0 : 0.02 * 2 ** ((v / 127) * 13);
+}
+
+/** LFO delay (fade) time, 0–127 → seconds; 0 = none. */
+export function lfoDelaySeconds(v: number): number {
+  return v <= 0 ? 0 : 0.01 * 2 ** ((v / 127) * 10);
 }

@@ -57,6 +57,12 @@
 - **Editing (2026-11-20):** lanes are drawn with the pointer (a straight line between pointer positions; Alt erases) or edited from the keyboard in the Editor, for note tracks under the piano roll and for each drum below the drum grid; each change is one undoable edit. MCP: `get_automation`, `set_automation`.
 - **Export (2026-11-20):** MIDI files carry synth and drum lanes as CC on the channel the Circuit hears them on (16 for levels, pans and sends). Live sets carry them as clip envelopes on `ControllerTargets.<cc>` (target 0 is pitch bend, checked on Live 12's own demo sets), but only lanes on the track's own channel: macros, drum knobs, drum level and pan. Project-channel lanes are left out of Live sets, with a warning.
 
+**LFOs 1–2 (2026-11-20):** `packages/engine/src/nova/lfo.ts`, feeding matrix sources 6–9 (6/8 unipolar, 7/9 bipolar) and taking rate modulation from destinations 14–15.
+- **From official documents:** the 38 shapes, ranges and flag bits (Circuit Programmer's Reference v1.3 p. 9); phase, key sync, common sync, one shot, slew, the four fade modes and delay trigger (UltraNova User Guide pp. 23–25, same engine); the 36 sync values (UltraNova p. 40, assumed the same because the range matches).
+- **Guessed, marked in the code:** the rate curve (`curves.ts lfoRateHz`, default 68 ≈ 2.5 Hz), the delay curve, the slew time, and the step values of Sequence 1–7, Alternative 1–8 and the 16 melodic shapes. Novation describes these shapes but publishes no values, and a web search (Novation help centre, Gearspace, Elektronauts, Reddit, GitHub) found no dumps or measurements.
+- **Card:** `tools/nova-levels.ts` (new `--no-lfo` flag) goes from 7 silent patches (Bendy Piano ×3, Orbit ×2, Episodes ×2) to none. p10 peak 0.118 → 0.139; above 1.0 unchanged at 145.
+- **Wavetables, from the same search:** official names for waves 14–29 only. The UltraNova guide says its wavetables have 9 frames each and describes index and interpolate. Nothing confirms whether the Circuit's 16 tables are a subset of the UltraNova's 36, and no single-cycle dumps are published. NOTAS:732 (core 1 X memory layout per table and level) remains the best lead for E0.7.
+
 **Next:** find why the oracle is silent (one to two days, time-boxed), then LFOs 1–2, then convert the swept DSP words to hertz and seconds.
 
 **Rule for this plan:** no device or card writes. Device reads (SysEx dump requests, the `fwid` query) need approval at the time. Firmware-derived data stays local and is never committed (§5).

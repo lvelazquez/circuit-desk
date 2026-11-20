@@ -1,9 +1,11 @@
-// The Nova voice, first slice (plan "E-slice"): oscillators, mixer, filter, three envelopes, the
-// polyphony modes and portamento. LFOs, the mod matrix, macros and the per-patch FX come in E2.
+// The Nova voice: oscillators, mixer, filter, three envelopes, two LFOs (lfo.ts), the mod matrix,
+// the polyphony modes and portamento. Macros apply in the patch domain; the per-patch FX are in
+// fx/patch.ts.
 // Pure DSP: it renders into Float32Arrays and keeps time in frames.
 import { FIRST_WAVETABLE, PATCH_PARAMS, applyMacros } from "@circuit-desk/patch";
 import * as C from "./curves.ts";
 import { Envelope, Noise, Svf, type SvfMode, saw, sawPulse, sine, triangle } from "./dsp.ts";
+import { Lfo, lfoParams, type LfoParams } from "./lfo.ts";
 
 /** The device updates parameters per 32-frame block (NOTAS:3098). */
 export const BLOCK = 32;
@@ -49,6 +51,7 @@ export interface NovaParams {
   qNormalise: number;
   env2ToCutoff: number;
   env: { velocity: number; delay: number; attack: number; decay: number; sustain: number; release: number }[];
+  lfo: [LfoParams, LfoParams];
   /** Active mod matrix slots (depth ≠ 0). */
   matrix: { source1: number; source2: number; depth: number; destination: number }[];
   /** Raw 0–127 values the matrix offsets, so modulated parameters go through the same curves. */
@@ -65,7 +68,7 @@ const MOD_PITCH_RANGE = 12;
  * Macros are applied first, in the 0–127 domain, as the firmware does; `macroPositions` overrides
  * the stored knob positions (automation lanes 1–8).
  */
-export function novaParams(raw: Readonly<Record<string, number>>, macroPositions?: readonly (number | undefined)[]): NovaParams {
+export function novaParams(raw: Readonly<Record<string, number>>, macroPositions?: readonly (number | undefined)[], bpm = 120): NovaParams {
   const v = APPLY_MACROS ? applyMacros(raw, macroPositions) : raw;
   const g = (id: string): number => {
     const x = v[id];
@@ -110,6 +113,7 @@ export function novaParams(raw: Readonly<Record<string, number>>, macroPositions
     qNormalise: g("filter.qNormalise") / 127,
     env2ToCutoff: C.bipolar(g("filter.env2ToFrequency")),
     env: [env(1), env(2), env(3)],
+    lfo: [lfoParams(g, 1, bpm), lfoParams(g, 2, bpm)],
     matrix: Array.from({ length: 20 }, (_, k) => ({
       source1: g(`mod${k + 1}.source1`), source2: g(`mod${k + 1}.source2`),
       depth: C.bipolar(g(`mod${k + 1}.depth`)), destination: g(`mod${k + 1}.destination`),
@@ -122,16 +126,21 @@ export function novaParams(raw: Readonly<Record<string, number>>, macroPositions
 export interface ModState { values: Float64Array }
 
 /**
- * Mod matrix sums for one voice at block rate. Sources the slice has: direct, velocity, keyboard,
- * the three envelopes. LFOs (6–9) read 0 until E2. Two sources multiply; source 2 = direct is 1.
+ * Mod matrix sums for one voice at block rate. Sources: direct, velocity, keyboard, the LFOs (6/8
+ * unipolar "+", 7/9 bipolar "±") and the three envelopes; 1–3 are undocumented and read 0. Two
+ * sources multiply; source 2 = direct is 1.
  */
-export function modSums(p: NovaParams, velocity: number, note: number, env: readonly number[], out: Float64Array): void {
+export function modSums(p: NovaParams, velocity: number, note: number, env: readonly number[], out: Float64Array, lfo: readonly number[] = [0, 0]): void {
   out.fill(0);
   const src = (s: number): number => {
     switch (s) {
       case 0: return 1;
       case 4: return velocity / 127;
       case 5: return (note - 60) / 64;
+      case 6: return ((lfo[0] ?? 0) + 1) / 2;
+      case 7: return lfo[0] ?? 0;
+      case 8: return ((lfo[1] ?? 0) + 1) / 2;
+      case 9: return lfo[1] ?? 0;
       case 10: return env[0] ?? 0;
       case 11: return env[1] ?? 0;
       case 12: return env[2] ?? 0;
@@ -181,10 +190,15 @@ export class Voice {
   private readonly svf = [new Svf(), new Svf()];
   private readonly noise = new Noise();
   private readonly mod = new Float64Array(18);
+  readonly lfo: [Lfo, Lfo];
 
   private readonly sampleRate: number;
 
-  constructor(sampleRate: number) { this.sampleRate = sampleRate; }
+  /** `seed` keeps each voice's random LFO shapes its own and repeatable. */
+  constructor(sampleRate: number, seed = 1) {
+    this.sampleRate = sampleRate;
+    this.lfo = [new Lfo(seed * 2 + 1), new Lfo(seed * 2 + 2)];
+  }
 
   get active(): boolean { return this.env[0]!.stage !== "idle"; }
   get releasing(): boolean { return this.env[0]!.stage === "release"; }
@@ -216,6 +230,7 @@ export class Voice {
       this.env[i]!.configure(e.delay, e.attack, e.decay, e.sustain, e.release, sr);
       this.env[i]!.gate(Math.round(e.delay * sr), legato);
     });
+    p.lfo.forEach((l, i) => this.lfo[i]!.trigger(l, legato));
   }
 
   release(): void { for (const e of this.env) e.release(); }
@@ -227,8 +242,11 @@ export class Voice {
     this.env[0]!.release();
   }
 
-  /** Adds `n` frames (n ≤ BLOCK) of this voice into `out` from `offset`. */
-  render(p: NovaParams, out: Float32Array, offset: number, n: number): void {
+  /**
+   * Adds `n` frames (n ≤ BLOCK) of this voice into `out` from `offset`. `shared` holds the synth's
+   * common-sync LFO values, used for an LFO with common sync on.
+   */
+  render(p: NovaParams, out: Float32Array, offset: number, n: number, shared?: readonly [number, number]): void {
     const sr = this.sampleRate;
     // Control rate, once per block: pitch with glide, filter coefficients.
     let pitch = this.pitch;
@@ -241,7 +259,10 @@ export class Voice {
     const velScale = (amount: number): number => (amount >= 0 ? 1 - amount * (1 - vel) : 1 + amount * vel);
     // Mod matrix (block rate). Parameter-domain destinations add depth × 127 to the raw value.
     const mod = this.mod;
-    modSums(p, this.velocity, this.note, [this.env[0]!.value, env2, this.env[2]!.value], mod);
+    // LFOs first: their rate destinations (14, 15) use the last block's matrix sums.
+    const lfo = p.lfo.map((l, k) =>
+      l.commonSync && shared ? shared[k]! : this.lfo[k]!.advance(l, Lfo.hz(l, mod[14 + k] ?? 0), n / sr));
+    modSums(p, this.velocity, this.note, [this.env[0]!.value, env2, this.env[2]!.value], mod, lfo);
     const raw = (base: number, d: number): number => Math.min(127, Math.max(0, base + (mod[d] ?? 0) * 127));
     const unit = (base: number, d: number): number => Math.min(1, Math.max(0, base + (mod[d] ?? 0)));
     const q = C.resonanceQ(raw(p.raw.resonance, 13));
