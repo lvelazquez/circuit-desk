@@ -12,13 +12,15 @@ type Patches = Awaited<ReturnType<typeof call<"packPatches">>>;
 
 export interface PackPatchChoice { bank: number; record: number; name: string }
 
-export function PackView({ projectId, version, firmware, chosen, onPatch }: {
+export function PackView({ projectId, version, firmware, chosen, onPatch, onLoad }: {
   projectId: string;
   version: number;
   firmware: FirmwareProfile | null;
   chosen: PackPatchChoice | null;
   /** The user picked a pack patch: make it the keyboard sound and play it once. */
   onPatch: (p: PackPatchChoice) => void;
+  /** Copy the chosen pack patch into Synth 1 or 2 (an undoable edit) and open it in the Patch view. */
+  onLoad: (p: PackPatchChoice, synth: 1 | 2) => void;
 }) {
   const [pack, setPack] = useState<Pack | null>(null);
   const [patches, setPatches] = useState<Patches | null>(null);
@@ -59,9 +61,19 @@ export function PackView({ projectId, version, firmware, chosen, onPatch }: {
       </div>
       <h2 className="section-title">Synth patches</h2>
       <p className="hint">
-        Choose a patch to hear it on the built-in preview (a first Nova voice: no LFOs or effects yet, so some patches sound thin or silent).
-        Turn on Keys to play the chosen patch from the computer keyboard.
+        Choose a patch to hear it on the built-in preview (the emulated synth; wavetables are still approximations).
+        Turn on Keys to play the chosen patch from the computer keyboard, or load it into a synth to edit it.
       </p>
+      {chosen && (
+        <div className="row" role="group" aria-label={`Edit ${chosen.name || "the chosen patch"}`}>
+          {([1, 2] as const).map((s) => (
+            <button key={s} type="button" className="btn" onClick={() => onLoad(chosen, s)}
+              data-tip={`Copy "${chosen.name}" into this project's Synth ${s} (replacing its patch, undoable) and open it in the Patch view. The pack's files are not changed.`}>
+              Edit in Synth {s}
+            </button>
+          ))}
+        </div>
+      )}
       {!patches?.banks.length ? <p className="hint">This pack has no patch banks.</p> : patches.banks.map((b) => (
         <div key={b.bank} className="patch-bank">
           <h3 className="patch-bank-title">Bank {b.bank + 1}</h3>

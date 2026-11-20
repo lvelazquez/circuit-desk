@@ -42,11 +42,14 @@ export class NovaSynth {
     this.fx.setValues(values, this.bpm);
   }
 
-  /** New patch values; sounding voices pick them up from the next block. */
-  setValues(values: Readonly<Record<string, number>>): void {
+  /**
+   * New patch values; sounding voices pick them up from the next block. A different patch clears
+   * the macro positions automation set; `keepMacros` keeps them (an edit of the patch playing).
+   */
+  setValues(values: Readonly<Record<string, number>>, keepMacros = false): void {
     this.values = values;
-    this.macros = [];
-    this.params = novaParams(values, undefined, this.bpm);
+    if (!keepMacros) this.macros = [];
+    this.params = novaParams(values, keepMacros ? this.macros : undefined, this.bpm);
     this.fx.setValues(values, this.bpm);
   }
 

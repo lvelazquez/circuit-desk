@@ -73,13 +73,14 @@ export class PreviewEngine {
    * Plays Synth 1 and 2 with the Nova voice and the project's own patches (340 B each; null keeps
    * the stand-in). `moduleUrl` is the bundled nova worklet. Returns the patch names now playing.
    */
-  async useNova(moduleUrl: string, patches: readonly (Uint8Array | null)[]): Promise<string[]> {
+  /** `keepMacros`: the patches are edits of the ones playing (keep the automation's macro positions). */
+  async useNova(moduleUrl: string, patches: readonly (Uint8Array | null)[], keepMacros = false): Promise<string[]> {
     await loadNovaWorklet(this.ctx, moduleUrl);
     const names: string[] = [];
     for (const t of [0, 1]) {
       const strip = this.strips[t]!, patch = patches[t];
       if (!patch) continue;
-      if (strip.instrument instanceof NovaInstrument) strip.instrument.setPatch(patch);
+      if (strip.instrument instanceof NovaInstrument) strip.instrument.setPatch(patch, keepMacros);
       else {
         strip.instrument.dispose();
         strip.instrument = new NovaInstrument(this.ctx, strip.gain, patch, { fx: this.fxOn, bpm: this.bpm });

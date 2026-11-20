@@ -194,3 +194,22 @@ button, input, select { font: inherit; color: inherit; }
 .tooltip[data-side="above"] { transform: translate(-50%, -100%); transform-origin: bottom center; }
 .tooltip[hidden] { display: none; }
 @keyframes tooltip-in { from { opacity: 0; scale: 0.96; } }
+
+/* Patch view: header, page tabs, a page of controls, the mod matrix table and the macro slots. */
+.patch-view { display: grid; gap: var(--space-sm); }
+.patch-head { flex-wrap: wrap; align-items: end; gap: var(--space-sm); margin: 0; }
+.patch-head label { color: var(--color-text-secondary); font-size: var(--font-size-sm); display: grid; gap: var(--space-2xs); }
+.patch-head input[type="text"], .patch-head select { background: var(--color-surface-raised); border: var(--size-border) solid var(--color-border-subtle); border-radius: var(--radius-control); padding: var(--space-xs); }
+.patch-head input[aria-invalid="true"] { border-color: var(--color-danger); }
+.patch-view > .hint { color: var(--color-text-secondary); font-size: var(--font-size-sm); margin: 0; }
+.patch-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2xs); border-bottom: var(--size-border-strong) solid var(--track); padding-bottom: var(--space-xs); }
+.patch-tabs .btn[aria-selected="true"] { border-color: var(--color-border-strong); background: var(--color-surface-pad-hover); color: var(--color-text-primary); }
+.patch-panel { max-width: calc(var(--size-fx-panel) * 2); }
+.patch-flags, .patch-slot { border: var(--size-border) solid var(--color-border-subtle); border-radius: var(--radius-control); padding: var(--space-xs); margin: 0; display: grid; gap: var(--space-2xs); }
+.patch-flags legend, .patch-slot legend { color: var(--color-text-secondary); font-size: var(--font-size-sm); padding: 0 var(--space-xs); }
+.patch-flags .check { display: flex; gap: var(--space-xs); align-items: center; }
+.patch-table { border-collapse: collapse; font-size: var(--font-size-sm); }
+.patch-table th, .patch-table td { padding: var(--space-2xs) var(--space-xs); text-align: left; color: var(--color-text-secondary); }
+.patch-table td label { display: grid; }
+.patch-table select { background: var(--color-surface-raised); border: var(--size-border) solid var(--color-border-subtle); border-radius: var(--radius-control); padding: var(--space-2xs); }
+.patch-table .slider { min-width: var(--size-strip); }

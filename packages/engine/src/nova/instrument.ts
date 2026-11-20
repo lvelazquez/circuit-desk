@@ -32,10 +32,11 @@ export class NovaInstrument implements Instrument {
     this.setPatch(patch);
   }
 
-  setPatch(patch: Uint8Array): void {
+  /** New patch bytes. `keepMacros`: an edit of the patch playing keeps the automation's macro positions. */
+  setPatch(patch: Uint8Array, keepMacros = false): void {
     const p = parsePatch(patch);
     this.name = p.name;
-    this.post({ type: "values", values: p.values });
+    this.post({ type: "values", values: p.values, keepMacros });
   }
 
   noteOn({ time, note, velocity }: NoteOn): void { this.post({ type: "on", time, note, velocity }); }

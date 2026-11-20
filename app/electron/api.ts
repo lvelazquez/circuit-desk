@@ -9,7 +9,7 @@ export type DeskService = Pick<ProjectService, DeskMethod>;
 export type DeskResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /** Commands from the app menu; the window decides what each means where focus is. */
-export type MenuCommand = "undo" | "redo" | "open" | "save-copy" | "export-midi" | "export-als" | "toggle-view" | "play" | "changed" | "export-audio" | "capture";
+export type MenuCommand = "undo" | "redo" | "open" | "save-copy" | "export-midi" | "export-als" | "toggle-view" | "play" | "changed" | "export-audio" | "capture" | "export-syx";
 
 export interface DeskBridge {
   call(method: DeskMethod, args: unknown[]): Promise<DeskResult<unknown>>;

@@ -175,7 +175,7 @@ async function run(): Promise<void> {
   // Tooltips: every control in every view has one; hover shows it after the delay, keyboard focus
   // at once, Escape hides it; it enters with Fast/SmoothOut and without motion under reduced motion.
   const untipped: string[] = [];
-  for (const v of ["Circuit", "Editor", "Scenes", "Mixer", "Project", "Pack"]) {
+  for (const v of ["Circuit", "Editor", "Scenes", "Mixer", "Project", "Patch", "Pack"]) {
     await js(`[...document.querySelectorAll('button')].find(b => b.textContent === '${v}').click()`);
     await wait(600);
     untipped.push(...await js<string[]>(`[...document.querySelectorAll('.app button, .app select, .app input, .app [role=application], .app .lane-points')]
@@ -298,6 +298,38 @@ async function run(): Promise<void> {
   check("choosing a pack patch selects it and plays without an error",
     await until(`document.querySelector('[aria-label^="Hear patch Initial Patch, None"]').getAttribute('aria-pressed') === 'true'`) && !(await js<boolean>(`!!document.querySelector('[role=alert]')`)),
     await js<string>(`document.querySelector('[role=alert]')?.textContent ?? ''`));
+
+  // Patch editing: a pack patch loads into Synth 2 and opens in the Patch view; pages move with
+  // the arrow keys; one keyboard step on a slider is one undoable edit, named by parameter and
+  // marked partial; the patch exports as .syx; Play sounds it without an error.
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Edit in Synth 2').click()`);
+  check("Edit in Synth 2 loads the pack patch and opens the Patch view",
+    await until(`!!document.querySelector('[aria-label="Patch"]') && [...document.querySelectorAll('.patch-head .btn')].find(b => b.textContent === 'Synth 2')?.getAttribute('aria-pressed') === 'true' && document.querySelector('.patch-head input[type=text]')?.value === 'Initial Patch'`),
+    await js<string>(`document.querySelector('[role=status]').textContent`));
+  await js(`document.getElementById('patch-tab-0').focus()`);
+  for (let i = 0; i < 4; i++) await key("Right");
+  check("arrow keys move between the patch pages", await until(`document.getElementById('patch-tab-4')?.getAttribute('aria-selected') === 'true' && document.activeElement?.id === 'patch-tab-4'`),
+    await js<string>(`document.activeElement?.id ?? 'none'`));
+  const freq = `[...document.querySelectorAll('#patch-page label.slider')].find(l => l.textContent.startsWith('Frequency')).querySelector('input')`;
+  await js(`${freq}.focus()`);
+  await key("Left");
+  check("one keyboard step on a patch slider is one edit", await until(`document.querySelector('[role=status]').textContent.includes('Synth 2 Filter frequency 126')`),
+    await js<string>(`document.querySelector('[role=status]').textContent`));
+  const patchLink = await SocketClient.connect(path.join(home, ".circuit-desk.sock"));
+  const patchDiff = (await patchLink?.call("diffVsOriginal", ["p1"])) as { field: string; status: string }[] | undefined;
+  patchLink?.close();
+  check("the edit is named by parameter and marked partial", !!patchDiff?.some((r) => r.field === "Synth 2 patch: filter.frequency" && r.status === "partial"),
+    JSON.stringify(patchDiff?.filter((r) => r.field.includes("patch"))));
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Export .syx').click()`);
+  const syxPath = path.join(home, "Exports", "01_Smoke", "Synth 2 - Initial Patch.syx");
+  check("Export .syx writes the patch as a 350-byte message", await until(`document.querySelector('[role=status]').textContent.includes('.syx')`) && (() => { try { return readFileSync(syxPath).length === 350; } catch { return false; } })(),
+    await js<string>(`document.querySelector('[role=status]').textContent`));
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Play C3')).click()`);
+  await wait(400);
+  check("Play C3 sounds the edited patch without an error", !(await js<boolean>(`!!document.querySelector('[role=alert]')`)), await js<string>(`document.querySelector('[role=alert]')?.textContent ?? ''`));
+  // Back to Synth 1, which later checks use.
+  await js(`[...document.querySelectorAll('.patch-head .btn')].find(b => b.textContent === 'Synth 1').click()`);
+  await until(`[...document.querySelectorAll('.patch-head .btn')].find(b => b.textContent === 'Synth 1')?.getAttribute('aria-pressed') === 'true'`);
 
   // Export Preview Audio: the rendered WAV has the burst at step 1 and silence between hits.
   menuClick("Export Preview Audio");

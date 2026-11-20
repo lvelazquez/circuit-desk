@@ -10,6 +10,7 @@ import { MixerView } from "./MixerView.tsx";
 import { Tooltips } from "./Tooltips.tsx";
 import { setNoteRoot } from "./model.ts";
 import { ProjectView } from "./ProjectView.tsx";
+import { PatchView } from "./PatchView.tsx";
 import type { SettingsEdit } from "@circuit-desk/ncs";
 import { DrumAutomation, DrumGrid, PianoRoll, type LaneEdit } from "./EditorView.tsx";
 import { Inspector } from "./Inspector.tsx";
@@ -26,10 +27,10 @@ import { useKeyboardPlayer, type KeySound } from "./useKeyboardPlayer.ts";
 import type { PackPatchChoice } from "./PackView.tsx";
 import { patchName } from "@circuit-desk/patch";
 
-type View = "circuit" | "editor" | "scenes" | "mixer" | "project" | "pack";
+type View = "circuit" | "editor" | "scenes" | "mixer" | "project" | "patch" | "pack";
 const VIEWS: readonly { id: View; label: string }[] = [
   { id: "circuit", label: "Circuit" }, { id: "editor", label: "Editor" }, { id: "scenes", label: "Scenes" },
-  { id: "mixer", label: "Mixer" }, { id: "project", label: "Project" }, { id: "pack", label: "Pack" },
+  { id: "mixer", label: "Mixer" }, { id: "project", label: "Project" }, { id: "patch", label: "Patch" }, { id: "pack", label: "Pack" },
 ];
 const VIEW_TIPS: Record<View, string> = {
   circuit: "The device: track buttons, pattern pads, and the 32-pad grid for steps and notes.",
@@ -37,6 +38,7 @@ const VIEW_TIPS: Record<View, string> = {
   scenes: "The 16 scenes: which patterns each track plays, and the scene chain.",
   mixer: "Levels, pans, reverb and delay sends, mute and solo, the project FX and the sidechains.",
   project: "Name, tempo, swing, scale and root, and each drum's sample and knobs.",
+  patch: "Synth 1 or 2's patch, page by page as on the device: oscillators, filter, envelopes, LFOs, FX, mod matrix and macros.",
   pack: "The pack's 64 drum samples and its synth patch banks, to audition.",
 };
 type Firmware = Awaited<ReturnType<typeof call<"firmware">>>;
@@ -253,6 +255,26 @@ export function App() {
     try { const p = await bridge().pickProject(); if (p) await open(p); } catch (e) { fail(e); }
   }, [open]);
 
+  /** Copies a pack patch into Synth 1 or 2 (one undoable edit), then opens it in the Patch view. */
+  const loadPackPatch = (c: PackPatchChoice, synth: 1 | 2): void => {
+    if (!projectId) return;
+    void edit(`loaded "${c.name}" from bank ${c.bank + 1} into Synth ${synth}`, () => call("loadPackPatch", projectId, synth, c.bank, c.record))
+      .then(() => { chooseTrack(synth === 1 ? "Synth 1" : "Synth 2"); setView("patch"); });
+  };
+  /** The synth the Patch view edits: the current track when it is a synth, else Synth 1. */
+  const patchSynth: 1 | 2 = track === "Synth 2" ? 2 : 1;
+  const exportSyx = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const { path } = await call("exportPatchSyx", projectId, patchSynth);
+      setStatus({ text: `Exported Synth ${patchSynth}'s patch as ${path} (a file only; nothing was sent to a device)` });
+      void bridge().reveal(path);
+    } catch (e) { fail(e); }
+  }, [projectId, patchSynth]);
+  const onPatchEdit = (changes: Record<string, number>, name: string | undefined, label: string): void => {
+    if (projectId) void edit(`${label} (patch fields are partial: saved to copies)`, () => call("setPatchParams", projectId, patchSynth, changes, name));
+  };
+
   useEffect(() => {
     try {
       return bridge().onMenu((command: MenuCommand) => {
@@ -264,6 +286,7 @@ export function App() {
         else if (command === "export-midi") void exportTo("midi");
         else if (command === "export-als") void exportTo("als");
         else if (command === "export-audio") void exportAudio();
+        else if (command === "export-syx") void exportSyx();
         else if (command === "toggle-view") setView((v) => VIEWS[(VIEWS.findIndex((x) => x.id === v) + 1) % VIEWS.length]!.id);
         else if (command === "changed") {
           // Claude edited or opened a project (or chose the firmware) through the MCP link.
@@ -275,7 +298,7 @@ export function App() {
         else if (command === "capture") void capture();
       });
     } catch { return undefined; }
-  }, [undo, pick, saveCopy, exportTo, exportAudio, player, readFirmware, capture]);
+  }, [undo, pick, saveCopy, exportTo, exportAudio, exportSyx, player, readFirmware, capture]);
 
   const chooseTrack = (t: TrackName): void => { setTrack(t); setStep(null); setPackChoice(null); };
   const choosePattern = (n: number): void => { setPattern(n); setStep(null); setDrumSel(null); };
@@ -345,7 +368,8 @@ export function App() {
           {!summary || !data ? <p className="empty">{projectId ? "Loading…" : "Choose a project in the library, or File › Open Project."}</p>
             : view === "mixer" ? (settings ? <MixerView settings={settings} muted={player.muted} solo={player.solo} onMute={player.toggleMute} onSolo={player.toggleSolo} onEdit={onSettingsEdit} /> : <p className="empty">Loading…</p>)
             : view === "project" && projectId ? (settings ? <ProjectView projectId={projectId} version={version} settings={settings} onEdit={onSettingsEdit} /> : <p className="empty">Loading…</p>)
-            : view === "pack" && projectId ? <PackView projectId={projectId} version={version} firmware={firmware?.current ?? null} chosen={packChoice} onPatch={choosePackPatch} />
+            : view === "patch" && projectId ? <PatchView projectId={projectId} version={version} synth={patchSynth} onSynth={(s) => chooseTrack(s === 1 ? "Synth 1" : "Synth 2")} onEdit={onPatchEdit} onPlay={() => void keys.audition()} onExport={() => void exportSyx()} />
+            : view === "pack" && projectId ? <PackView projectId={projectId} version={version} firmware={firmware?.current ?? null} chosen={packChoice} onPatch={choosePackPatch} onLoad={loadPackPatch} />
             : view === "scenes" ? (scenes ? (
               <ScenesView scenes={scenes} playing={player.playing && player.playFrom.kind === "scene" ? player.playFrom.n : null} onPlayScene={(n) => player.choosePlayFrom({ kind: "scene", n }, true)}
                 onSceneChain={(first, last) => { if (projectId) void edit(`scene chain ${first}–${last}`, () => call("setChain", projectId, "scenes", first, last)); }}

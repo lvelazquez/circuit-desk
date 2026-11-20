@@ -87,7 +87,7 @@ export function usePlayer(projectId: string | null, version: number) {
   }, [output, preview]);
 
   /** Makes the engine (first time) and loads the drum samples this arrangement uses. */
-  const prepare = useCallback(async (a: Arrangement): Promise<void> => {
+  const prepare = useCallback(async (a: Arrangement, editWhilePlaying = false): Promise<void> => {
     if (!preview || !projectId) return;
     if (!engine.current) {
       // Through the capture tap, and every message logged, so a sound report has what was played.
@@ -99,7 +99,8 @@ export function usePlayer(projectId: string | null, version: number) {
     await engine.current.loadDrums(pack.drums, flips, packLoader(projectId));
     // Synth 1/2 play their own patches through the Nova voice (re-read each time: edits may change them).
     const nova = await novaRender(projectId);
-    await engine.current.useNova(nova.moduleUrl, nova.patches);
+    // An edit while playing keeps the macro positions the automation has set.
+    await engine.current.useNova(nova.moduleUrl, nova.patches, editWhilePlaying);
     // Levels, pans, sidechains, drum knobs, reverb and delay, as the project stores them.
     await engine.current.useSound(nova.moduleUrl, await call("soundSettings", projectId), a.bpm);
     engine.current.setFx(fxRef.current);
@@ -163,7 +164,7 @@ export function usePlayer(projectId: string | null, version: number) {
     void call("arrangement", projectId, { ...arrangementOptions(playFromRef.current), target }).then((a) => {
       const old = sched.current;
       if (!live || !old) return;
-      void prepare(a); // new sample flips load in the background; until then they use the track's sample
+      void prepare(a, true); // new sample flips load in the background; until then they use the track's sample
       const now = performance.now(), at = old.position(now) % a.length;
       send(old.stop(now, true));
       const s = new Schedule(a, { clock, muted: silentRef.current });

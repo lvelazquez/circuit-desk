@@ -4,7 +4,7 @@
 export const NOVA_PROCESSOR = "circuit-desk-nova";
 
 export type NovaMessage =
-  | { type: "values"; values: Record<string, number> }
+  | { type: "values"; values: Record<string, number>; keepMacros?: boolean }
   | { type: "on"; time: number; note: number; velocity: number }
   | { type: "off"; time: number; note: number }
   | { type: "silence"; time: number }

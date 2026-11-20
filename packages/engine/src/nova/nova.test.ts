@@ -32,6 +32,21 @@ function rms(x: Float32Array, from = 0, to = x.length): number {
 const values = (changes: Record<string, number> = {}): Record<string, number> => ({ ...defaultValues(), ...changes });
 
 describe("Nova voice (slice)", () => {
+  it("an edit of the patch playing keeps the automation's macro positions; a new patch clears them", () => {
+    // Macro 1 slot A raises Osc 1's level (stored at 0) across the knob's travel; the stored knob is at 0.
+    // Stored destination 1–70 selects destination 0–69 (0 = none); Osc 1 level is destination 16.
+    const patch = values({ "mixer.osc1": 0, "macro1.position": 0, "macro1.a.destination": 17, "macro1.a.start": 0, "macro1.a.end": 127, "macro1.a.depth": 127, "env1.attack": 0 });
+    const level = (s: NovaSynth): number => { const out = new Float32Array(9600); s.process(out); return rms(out, 4800); };
+    const s = new NovaSynth(SR, patch);
+    s.schedule({ frame: 0, type: "macro", index: 0, value: 127 });
+    s.schedule({ frame: 0, type: "on", note: 60, velocity: 100 });
+    expect(level(s)).toBeGreaterThan(0.01);
+    s.setValues({ ...patch, "filter.resonance": 10 }, true);
+    expect(level(s)).toBeGreaterThan(0.01);
+    s.setValues(patch);
+    expect(level(s)).toBeLessThan(1e-4);
+  });
+
   it("reads the guide's default patch from packages/patch", () => {
     expect(parsePatch(initPatchBytes()).values).toEqual(initPatch().values);
     expect(defaultValues()).toEqual(initPatch().values);

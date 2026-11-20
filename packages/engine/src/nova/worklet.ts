@@ -28,7 +28,7 @@ class NovaProcessor extends AudioWorkletProcessor {
   }
 
   private receive(m: NovaMessage): void {
-    if (m.type === "values") { this.synth.setValues(m.values); return; }
+    if (m.type === "values") { this.synth.setValues(m.values, m.keepMacros === true); return; }
     if (m.type === "bpm") { this.synth.setBpm(m.bpm); return; }
     if (m.type === "macro") { this.synth.schedule({ frame: Math.max(currentFrame, Math.round(m.time * sampleRate)), type: "macro", index: m.index, value: m.value }); return; }
     if (m.type === "fx") { this.synth.fx.enabled = m.on; return; }
