@@ -382,6 +382,14 @@ export class ProjectService {
    * The project's own Synth 1 and Synth 2 patches (340 B each at 0x26D14, Novation's "Synth Patch
    * Format"), as edited in this session. Read-only: arrays of byte values for the preview engine.
    */
+  /**
+   * The project's sound settings for the built-in preview: reverb, delay, sends, FX bypass, the four
+   * sidechains, track levels and pans, and the drum knobs (layout from the firmware's descriptors).
+   */
+  soundSettings(id: string): N.SoundSettings {
+    return N.readSound(this.get(id).project);
+  }
+
   synthPatches(id: string): { synth1: number[]; synth2: number[] } {
     const b = this.get(id).project.bytes;
     const at = (s: number): number[] => Array.from(b.subarray(N.PATCH0 + s * N.PATCH_SIZE, N.PATCH0 + (s + 1) * N.PATCH_SIZE));

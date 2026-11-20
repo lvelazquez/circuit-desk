@@ -210,14 +210,14 @@ export function App() {
       setStatus({ text: "Rendering the preview…" });
       const a = await call("arrangement", projectId, { source: "current" });
       const pack = await call("packSamples", projectId);
-      const buf = await renderOffline(a, pack.drums, (i) => call("sampleData", projectId, i), await novaRender(projectId));
+      const buf = await renderOffline(a, pack.drums, (i) => call("sampleData", projectId, i), await novaRender(projectId), await call("soundSettings", projectId), player.fx);
       const wav = encodeWav(Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c)), buf.sampleRate);
       const { path } = await call("saveAudio", projectId, wav);
       const midi = firmware?.current.midiTracks === "own-synth" ? "MIDI 1/2 own synths are not emulated yet (stand-ins)" : "MIDI 1/2 are stand-ins for external gear";
       setStatus({ text: `Exported ${path} (built-in preview: drums from the pack; Synth 1/2 play their own patches on a first Nova voice; ${midi})` });
       void bridge().reveal(path);
     } catch (e) { fail(e); }
-  }, [projectId, firmware]);
+  }, [projectId, firmware, player.fx]);
 
   const pick = useCallback(async () => {
     try { const p = await bridge().pickProject(); if (p) await open(p); } catch (e) { fail(e); }
@@ -292,6 +292,9 @@ export function App() {
             <option value="live">→ Live set</option>
           </select>
           <label><input type="checkbox" checked={player.clock} disabled={player.playing} onChange={(e) => player.setClock(e.target.checked)} /> Clock</label>
+          <button type="button" className="btn" aria-pressed={player.fx} disabled={player.portId !== "preview"}
+            title="Built-in preview: track levels and pans, sidechains, drum knobs, patch distortion, EQ and chorus, reverb and delay. Reverb, delay, chorus and distortion are approximations; levels, pans, drum pitch and drum EQ follow the firmware."
+            onClick={() => player.setFx(!player.fx)}>FX {player.fx ? "on" : "off"}</button>
           <button type="button" className="btn" aria-pressed={keys.on} disabled={!keySound}
             title="Play the synth sound from the computer keyboard: A–; notes, W E T Y U O P sharps, Z/X octave, C/V velocity, Esc off"
             onClick={() => keys.setOn(!keys.on)}>⌨ Keys</button>

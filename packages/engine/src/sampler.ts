@@ -2,6 +2,7 @@
 // Plays a drum track from the pack's own samples (48 kHz mono WAVs, PCM/NN_Name.wav). One sound
 // at a time per track, as the Circuit's drum tracks do: a new hit cuts the last.
 import type { Instrument, NoteOn } from "./types.ts";
+import { drumDecaySeconds, drumPitchRatio } from "./fx/curves.ts";
 
 /** Fetches and decodes sample `index` (0–63) of the pack; null when the pack has none. */
 export type SampleLoader = (index: number) => Promise<AudioBuffer | null>;
@@ -18,6 +19,9 @@ export class Sampler implements Instrument {
   private sample: number;
   private readonly fallback: FallbackVoice;
   private current: { src: AudioScheduledSourceNode; gain: GainNode } | null = null;
+  /** The drum's pitch and decay knobs (project drum record); off plays samples untouched. */
+  private knobs = { pitch: 64, decay: 127 };
+  private knobsOn = true;
 
   constructor(ctx: BaseAudioContext, out: AudioNode, sample: number, fallback: FallbackVoice) {
     this.ctx = ctx; this.out = out; this.sample = sample; this.fallback = fallback;
@@ -25,6 +29,12 @@ export class Sampler implements Instrument {
 
   /** The track's own sample (from the project's drum record). */
   setSample(index: number): void { this.sample = index; }
+
+  /** Pitch (64 = as recorded) and decay (127 = the whole sample) from the project's drum record. */
+  setKnobs(pitch: number, decay: number): void { this.knobs = { pitch, decay }; }
+
+  /** The app's FX switch: false ignores the pitch and decay knobs. */
+  setKnobsEnabled(on: boolean): void { this.knobsOn = on; }
 
   /** Decodes the samples this track will need before playback starts, so the first hit is on time. */
   async load(indices: Iterable<number>, loader: SampleLoader): Promise<void> {
@@ -40,6 +50,12 @@ export class Sampler implements Instrument {
     gain.connect(this.out);
     const buf = this.buffers.get(sample ?? this.sample);
     const src = buf ? this.play(buf, gain, time) : this.synthesize(gain, time);
+    if (this.knobsOn) {
+      if (buf) (src as AudioBufferSourceNode).playbackRate.value = drumPitchRatio(this.knobs.pitch);
+      const decay = drumDecaySeconds(this.knobs.decay);
+      // The decay seconds are where the hit is about 40 dB down: a time constant of a fifth of that.
+      if (Number.isFinite(decay)) gain.gain.setTargetAtTime(0, time, decay / 4.6);
+    }
     this.current = { src, gain };
     src.onended = () => { gain.disconnect(); if (this.current?.src === src) this.current = null; };
   }

@@ -2,7 +2,7 @@
 // keyboard editing in the Circuit view, undo/redo through the app menu, a saved copy on disk,
 // the piano roll and drum grid, accessible names, and reduced motion. `npm run app:smoke`.
 import { app, BrowserWindow, Menu, type MenuItem } from "electron";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SocketClient } from "@circuit-desk/core-service";
@@ -202,6 +202,20 @@ async function run(): Promise<void> {
   const seconds = frames / 48_000, expected = 16 * 0.125 + 1.5; // 16 steps at 120 BPM, plus the render tail
   check("the preview WAV is the pattern's length plus the tail", Math.abs(seconds - expected) < 0.01, `${seconds.toFixed(3)} s`);
   check("every note has ended by the end of the WAV", at(seconds - 0.02) < 0.005, `peak at the end ${at(seconds - 0.02).toFixed(4)}`);
+
+  // Effects: the FX switch is on by default; off renders every track dry at unity (no level 100, no pan).
+  const fxBtn = `[...document.querySelectorAll('button')].find(b => /^FX (on|off)$/.test(b.textContent))`;
+  check("the FX switch is on by default", (await js<string>(`${fxBtn}?.textContent ?? ''`)) === "FX on");
+  const peakStart = (buf: Buffer): number => { const c = buf.readUInt16LE(22); let p = 0; for (let i = 0; i < 480; i++) p = Math.max(p, Math.abs(buf.readInt16LE(44 + i * c * 2)) / 32768); return p; };
+  const peakOn = peakStart(wav), wavTime = statSync(wavPath).mtimeMs;
+  await js(`${fxBtn}.click()`);
+  check("the FX switch turns off and says so", await until(`${fxBtn}.textContent === 'FX off' && ${fxBtn}.getAttribute('aria-pressed') === 'false'`));
+  menuClick("Export Preview Audio");
+  for (let i = 0; i < 150 && statSync(wavPath).mtimeMs === wavTime; i++) await wait(100);
+  await wait(300);
+  const peakOff = peakStart(readFileSync(wavPath));
+  check("with FX off the preview is the dry mix (louder than level 100 with FX on)", peakOff > peakOn * 1.1, `on ${peakOn.toFixed(3)}, off ${peakOff.toFixed(3)}`);
+  await js(`${fxBtn}.click()`);
 
   // Playback through the fake output.
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);

@@ -1,6 +1,7 @@
 // One Nova synth part (Synth 1 or 2): a voice pool, the polyphony modes, and an event queue timed
 // in frames so notes land on the exact sample. Pure DSP; the AudioWorklet and tests drive it.
 import { BLOCK, VOICES, Voice, defaultValues, novaParams, type NovaParams } from "./voice.ts";
+import { PatchFx } from "../fx/patch.ts";
 
 export type NovaEvent =
   | { frame: number; type: "on"; note: number; velocity: number }
@@ -18,16 +19,41 @@ export class NovaSynth {
   private lastNote: number | null = null;
 
   readonly sampleRate: number;
+  /** The patch's own distortion, EQ and chorus, after the voices (processStereo). */
+  readonly fx: PatchFx;
+  private values: Readonly<Record<string, number>>;
+  private bpm = 120;
+  private mono = new Float32Array(128);
 
   constructor(sampleRate: number, values: Readonly<Record<string, number>> = defaultValues()) {
     this.sampleRate = sampleRate;
+    this.values = values;
     this.params = novaParams(values);
     this.voices = Array.from({ length: VOICES }, () => new Voice(sampleRate));
+    this.fx = new PatchFx(sampleRate);
+    this.fx.setValues(values, this.bpm);
   }
 
   /** New patch values; sounding voices pick them up from the next block. */
   setValues(values: Readonly<Record<string, number>>): void {
+    this.values = values;
     this.params = novaParams(values);
+    this.fx.setValues(values, this.bpm);
+  }
+
+  /** Tempo, for synced chorus rates. */
+  setBpm(bpm: number): void {
+    if (!(bpm > 0)) return;
+    this.bpm = bpm;
+    this.fx.setValues(this.values, bpm);
+  }
+
+  /** Renders left.length frames through the patch's effects into `left` and `right` (written, not added). */
+  processStereo(left: Float32Array, right: Float32Array): void {
+    if (this.mono.length !== left.length) this.mono = new Float32Array(left.length);
+    this.mono.fill(0);
+    this.process(this.mono);
+    this.fx.process(this.mono, left, right);
   }
 
   schedule(e: NovaEvent): void {

@@ -8,6 +8,8 @@ import { Sampler, type FallbackVoice, type SampleLoader } from "./sampler.ts";
 import { STAND_IN_PATCHES, Synth } from "./synth.ts";
 import type { Instrument } from "./types.ts";
 import { NovaInstrument, loadNovaWorklet } from "./nova/instrument.ts";
+import { MIXER_PROCESSOR, type MixerInit, type MixerMessage } from "./nova/protocol.ts";
+import type { SoundSettings } from "@circuit-desk/ncs";
 import { SOFTCLIP_RANGE, softClipCurve } from "./softclip.ts";
 
 const DRUM_FALLBACK: readonly FallbackVoice[] = ["kick", "snare", "hat", "perc"];
@@ -27,6 +29,10 @@ export class PreviewEngine {
   private clock: () => { perfMs: number; audioS: number };
   /** Told about every message played, at its audio time (for sound reports). */
   listener: ((e: PlayedEvent) => void) | null = null;
+  /** The project mixer (levels, pans, sidechains, drum knobs, reverb and delay), once useSound ran. */
+  private mixer: AudioWorkletNode | null = null;
+  private fxOn = true;
+  private bpm = 120;
 
   /** `output` is where the mix goes (default: the speakers), e.g. the app's capture tap. */
   constructor(ctx: BaseAudioContext, opts: { drumSamples?: readonly number[]; clock?: () => { perfMs: number; audioS: number }; output?: AudioNode } = {}) {
@@ -76,12 +82,51 @@ export class PreviewEngine {
       if (strip.instrument instanceof NovaInstrument) strip.instrument.setPatch(patch);
       else {
         strip.instrument.dispose();
-        strip.instrument = new NovaInstrument(this.ctx, strip.gain, patch);
+        strip.instrument = new NovaInstrument(this.ctx, strip.gain, patch, { fx: this.fxOn, bpm: this.bpm });
       }
       names.push((strip.instrument as NovaInstrument).name);
     }
     return names;
   }
+
+  /**
+   * Plays the project's sound settings: track levels and pans, sidechains, drum knobs, and the reverb
+   * and delay with their sends. `moduleUrl` is the bundled worklet (the same as useNova's).
+   */
+  async useSound(moduleUrl: string, sound: SoundSettings, bpm: number): Promise<void> {
+    await loadNovaWorklet(this.ctx, moduleUrl);
+    this.bpm = bpm;
+    if (!this.mixer) {
+      // The settings go with the node, so an offline render has them from the first frame.
+      const processorOptions: MixerInit = { sound, bpm, fx: this.fxOn };
+      this.mixer = new AudioWorkletNode(this.ctx, MIXER_PROCESSOR, {
+        numberOfInputs: 8, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: "explicit", processorOptions,
+      });
+      this.mixer.connect(this.master);
+      this.strips.forEach((s, t) => { s.gain.disconnect(); s.gain.connect(this.mixer!, 0, t); });
+    }
+    this.postMixer({ type: "sound", sound, bpm });
+    this.postMixer({ type: "fx", on: this.fxOn });
+    this.strips.forEach((s, t) => {
+      if (s.instrument instanceof NovaInstrument) s.instrument.setBpm(bpm);
+      const d = sound.drums[t - 4];
+      if (d && s.instrument instanceof Sampler) s.instrument.setKnobs(d.pitch, d.decay);
+    });
+  }
+
+  /** The FX switch: off plays every track dry at unity, without patch effects or drum knobs. */
+  setFx(on: boolean): void {
+    this.fxOn = on;
+    this.postMixer({ type: "fx", on });
+    for (const s of this.strips) {
+      if (s.instrument instanceof NovaInstrument) s.instrument.setFx(on);
+      if (s.instrument instanceof Sampler) s.instrument.setKnobsEnabled(on);
+    }
+  }
+
+  get fx(): boolean { return this.fxOn; }
+
+  private postMixer(m: MixerMessage): void { this.mixer?.port.postMessage(m); }
 
   /** Plays scheduler messages. Messages without a track (clock, start, stop) are ignored here. */
   handle(msgs: readonly TimedMessage[]): void {
@@ -93,7 +138,10 @@ export class PreviewEngine {
       const time = Math.max(audioS, audioS + (m.at - perfMs) / 1000);
       const kind = (m.bytes[0] ?? 0) & 0xf0, a = m.bytes[1] ?? 0, b = m.bytes[2] ?? 0;
       this.listener?.({ time, track: m.track, bytes: [...m.bytes], ...(m.sample !== undefined ? { sample: m.sample } : {}) });
-      if (kind === 0x90 && b > 0) strip.instrument.noteOn({ time, note: a, velocity: b, ...(m.sample !== undefined ? { sample: m.sample } : {}) });
+      if (kind === 0x90 && b > 0) {
+        strip.instrument.noteOn({ time, note: a, velocity: b, ...(m.sample !== undefined ? { sample: m.sample } : {}) });
+        if (m.track >= 4) this.postMixer({ type: "trigger", time, drum: m.track - 4 });   // the sidechains listen to drum hits
+      }
       else if (kind === 0x80 || kind === 0x90) strip.instrument.noteOff(time, a);
       else if (kind === 0xb0) strip.instrument.control(time, a, b);
     }

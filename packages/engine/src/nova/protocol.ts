@@ -7,7 +7,23 @@ export type NovaMessage =
   | { type: "values"; values: Record<string, number> }
   | { type: "on"; time: number; note: number; velocity: number }
   | { type: "off"; time: number; note: number }
-  | { type: "silence"; time: number };
+  | { type: "silence"; time: number }
+  /** Tempo, for synced chorus rates. */
+  | { type: "bpm"; bpm: number }
+  /** The app's FX switch: false plays the voices without the patch's effects. */
+  | { type: "fx"; on: boolean };
+
+/** What a Nova node starts with (AudioWorkletNode processorOptions). */
+export interface NovaInit { values?: Record<string, number>; fx?: boolean; bpm?: number }
+
+/** The project mixer (fx/mixer.ts): 8 stereo strips in, one stereo mix out. */
+export const MIXER_PROCESSOR = "circuit-desk-mixer";
+/** What the mixer node starts with (processorOptions). */
+export interface MixerInit { sound?: import("@circuit-desk/ncs").SoundSettings; bpm?: number; fx?: boolean }
+export type MixerMessage =
+  | { type: "sound"; sound: import("@circuit-desk/ncs").SoundSettings; bpm: number }
+  | { type: "trigger"; time: number; drum: number }
+  | { type: "fx"; on: boolean };
 
 /** The capture tap: passes audio through and keeps the last seconds of it for a sound report. */
 export const TAP_PROCESSOR = "circuit-desk-tap";

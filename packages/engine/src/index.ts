@@ -4,3 +4,7 @@ export * from "./synth.ts";
 export * from "./types.ts";
 export * from "./render.ts";
 export * from "./nova/index.ts";
+export * from "./fx/curves.ts";
+export * from "./fx/effects.ts";
+export * from "./fx/mixer.ts";
+export * from "./fx/patch.ts";

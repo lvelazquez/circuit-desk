@@ -9,6 +9,7 @@
   "dependencies": {
     "@circuit-desk/playback": "*",
     "@circuit-desk/export": "*",
-    "@circuit-desk/patch": "*"
+    "@circuit-desk/patch": "*",
+    "@circuit-desk/ncs": "*"
   }
 }

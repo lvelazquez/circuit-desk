@@ -42,6 +42,13 @@
 - **E0.6 has started.** A full parameter sweep through the stock ARM code ran (298 Synth 1 parameters). Results and method: [`firmware-oracle.md`](firmware-oracle.md).
 - **The core-1 spike (D-6) is partly built.** The DSP emulator runs here and a core-1 stand-in serves core 0's table requests, but the audio output is still silent; the blocker and next steps are in `firmware-oracle.md`.
 
+**Effects, first round (2026-11-20, plan E3 brought forward):** the built-in preview now plays the project's and patches' effects, with an FX switch in the toolbar to compare.
+- **Settings decoded from the firmware's own descriptors** (`tools/firmware/descriptors.ts`): project block (reverb, delay, sends, FX bypass, four sidechains, levels, pans) and drum records (sample, level, pitch, decay, distortion, EQ, pan). `packages/ncs/src/sound.ts`; all 152 card projects decode, and every sidechain is one of the device's 8 presets.
+- **Exact:** pan law, level shape, drum pitch ratio, drum tilt EQ, delay L/R time ratios, DSP order of the patch effects (distortion → EQ → chorus).
+- **Approximate** (marked in `packages/engine/src/fx/curves.ts`): reverb (feedback-delay network), delay times and the 36 sync note lengths, chorus/phaser, the 7 distortion shapes, patch EQ frequencies, sidechain and drum-decay times.
+- **Measured but not yet used:** a stock-ARM sweep of the project FX (`~/Circuit Desk/Firmware-derived/sweep-project-fx.json`): delay sync is linear in its index, feedback is value << 16, and each reverb type writes its own 8 algorithm words.
+- **Not in this round:** master DJ filter and compressor (global settings), automation of levels, pans, sends and drum knobs.
+
 **Next:** find why the oracle is silent (one to two days, time-boxed), then LFOs 1–2, then convert the swept DSP words to hertz and seconds.
 
 **Rule for this plan:** no device or card writes. Device reads (SysEx dump requests, the `fwid` query) need approval at the time. Firmware-derived data stays local and is never committed (§5).

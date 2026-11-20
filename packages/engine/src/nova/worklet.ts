@@ -1,27 +1,36 @@
 // The AudioWorklet processor for one Nova synth part. Loaded with audioWorklet.addModule(url); the
 // app gets the bundled url from Vite ("@circuit-desk/engine/nova-worklet?worker&url").
-import { NOVA_PROCESSOR, TAP_PROCESSOR, TAP_SECONDS, type NovaMessage, type TapDump, type TapRequest } from "./protocol.ts";
+import { MIXER_PROCESSOR, NOVA_PROCESSOR, TAP_PROCESSOR, TAP_SECONDS, type MixerInit, type MixerMessage, type NovaInit, type NovaMessage, type TapDump, type TapRequest } from "./protocol.ts";
 import { NovaSynth } from "./synth.ts";
+import { ProjectMixer } from "../fx/mixer.ts";
 
 // The AudioWorkletGlobalScope, which TypeScript's libraries do not describe.
 declare const sampleRate: number;
 declare const currentFrame: number;
 declare class AudioWorkletProcessor {
   readonly port: MessagePort;
+  constructor(options?: { processorOptions?: unknown });
 }
 declare function registerProcessor(name: string, ctor: new () => AudioWorkletProcessor): void;
 
 class NovaProcessor extends AudioWorkletProcessor {
   private readonly synth = new NovaSynth(sampleRate);
-  private mono = new Float32Array(128);
 
-  constructor() {
-    super();
+  /** Initial values, FX switch and tempo come with the node (processorOptions): an offline render can
+   * finish before a port message arrives. Later changes come as messages. */
+  constructor(options?: { processorOptions?: NovaInit }) {
+    super(options);
+    const init = options?.processorOptions;
+    if (init?.values) this.synth.setValues(init.values);
+    if (init?.bpm) this.synth.setBpm(init.bpm);
+    if (init?.fx === false) this.synth.fx.enabled = false;
     this.port.onmessage = (e: MessageEvent<NovaMessage>) => this.receive(e.data);
   }
 
   private receive(m: NovaMessage): void {
     if (m.type === "values") { this.synth.setValues(m.values); return; }
+    if (m.type === "bpm") { this.synth.setBpm(m.bpm); return; }
+    if (m.type === "fx") { this.synth.fx.enabled = m.on; return; }
     const frame = Math.max(currentFrame, Math.round(m.time * sampleRate));
     if (m.type === "on") this.synth.schedule({ frame, type: "on", note: m.note, velocity: m.velocity });
     else if (m.type === "off") this.synth.schedule({ frame, type: "off", note: m.note });
@@ -30,18 +39,43 @@ class NovaProcessor extends AudioWorkletProcessor {
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const out = outputs[0];
-    const left = out?.[0];
-    if (!out || !left) return true;
-    if (this.mono.length !== left.length) this.mono = new Float32Array(left.length);
-    this.mono.fill(0);
+    const left = out?.[0], right = out?.[1] ?? left;
+    if (!out || !left || !right) return true;
     this.synth.frame = currentFrame;
-    this.synth.process(this.mono);
-    for (const ch of out) ch.set(this.mono);
+    this.synth.processStereo(left, right);
     return true;
   }
 }
 
 registerProcessor(NOVA_PROCESSOR, NovaProcessor);
+
+/** The project mixer: 8 stereo strips (Synth 1, Synth 2, MIDI 1, MIDI 2, Drum 1–4) in, the mix out. */
+class MixerProcessor extends AudioWorkletProcessor {
+  private readonly mixer = new ProjectMixer(sampleRate);
+
+  constructor(options?: { processorOptions?: MixerInit }) {
+    super(options);
+    const init = options?.processorOptions;
+    if (init?.sound) this.mixer.set(init.sound, init.bpm ?? 120);
+    if (init?.fx === false) this.mixer.enabled = false;
+    this.port.onmessage = (e: MessageEvent<MixerMessage>) => {
+      const m = e.data;
+      if (m.type === "sound") this.mixer.set(m.sound, m.bpm);
+      else if (m.type === "fx") this.mixer.enabled = m.on;
+      else this.mixer.trigger(Math.max(currentFrame, Math.round(m.time * sampleRate)), m.drum);
+    };
+  }
+
+  process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
+    const out = outputs[0];
+    const left = out?.[0], right = out?.[1];
+    if (!left || !right) return true;
+    this.mixer.process(inputs, left, right, currentFrame, left.length);
+    return true;
+  }
+}
+
+registerProcessor(MIXER_PROCESSOR, MixerProcessor);
 
 /** Passes its stereo input through unchanged and keeps the last TAP_SECONDS in a ring buffer. */
 class TapProcessor extends AudioWorkletProcessor {

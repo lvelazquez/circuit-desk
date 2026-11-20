@@ -4,6 +4,7 @@
 import type { Arrangement } from "@circuit-desk/export";
 import { Schedule } from "@circuit-desk/playback";
 import { PreviewEngine, wavLoader } from "./engine.ts";
+import type { SoundSettings } from "@circuit-desk/ncs";
 
 export const RENDER_RATE = 48_000;
 /** Seconds after the last step, so releases and sample tails are kept. */
@@ -16,13 +17,18 @@ export interface NovaRender { moduleUrl: string; patches: readonly (Uint8Array |
 
 export async function renderOffline(
   a: Arrangement, drums: readonly number[], fetchSample: (index: number) => Promise<Uint8Array>, nova?: NovaRender,
+  sound?: SoundSettings | null, fx = true,
 ): Promise<AudioBuffer> {
   const seconds = Math.min(RENDER_MAX, (a.length / a.ppq) * (60 / a.bpm) + RENDER_TAIL);
   const ctx = new OfflineAudioContext(2, Math.ceil(seconds * RENDER_RATE), RENDER_RATE);
   const engine = new PreviewEngine(ctx, { clock: () => ({ perfMs: 0, audioS: 0 }) });
   const flips = a.tracks.slice(4).map((t) => [...new Set(t.notes.flatMap((n) => (n.sample !== undefined ? [n.sample] : [])))]);
   await engine.loadDrums(drums, flips, wavLoader(ctx, fetchSample));
+  // The FX switch first: the worklet nodes made below take it (and the settings) at construction.
+  engine.setFx(fx);
   if (nova) await engine.useNova(nova.moduleUrl, nova.patches);
+  // Effects (levels, pans, sidechains, drum knobs, reverb, delay) need the worklet module too.
+  if (nova && sound) await engine.useSound(nova.moduleUrl, sound, a.bpm);
   const s = new Schedule(a, { loop: false, lookahead: Number.POSITIVE_INFINITY });
   s.play(0);
   engine.handle(s.pump(0));

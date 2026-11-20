@@ -14,6 +14,7 @@ export const PREVIEW_PORT = "preview";
 const PUMP_MS = 25;
 const PORT_KEY = "circuit-desk.midi-output";
 const TARGET_KEY = "circuit-desk.play-target";
+const FX_KEY = "circuit-desk.fx";
 
 /** circuit: the Circuit's own channels and drum notes. live: the play-along Live set's. */
 export type PlayTarget = "circuit" | "live";
@@ -52,6 +53,8 @@ export function usePlayer(projectId: string | null, version: number) {
   const arr = useRef<Arrangement | null>(null);
   const [playFrom, setPlayFromState] = useState<PlayFrom>({ kind: "current" });
   const playFromRef = useRef<PlayFrom>({ kind: "current" });
+  const [fx, setFxState] = useState(remembered(FX_KEY) !== "off");
+  const fxRef = useRef(fx);
 
   useEffect(() => {
     setPorts([{ id: PREVIEW_PORT, name: "Built-in preview" }]);
@@ -86,6 +89,9 @@ export function usePlayer(projectId: string | null, version: number) {
     // Synth 1/2 play their own patches through the Nova voice (re-read each time: edits may change them).
     const nova = await novaRender(projectId);
     await engine.current.useNova(nova.moduleUrl, nova.patches);
+    // Levels, pans, sidechains, drum knobs, reverb and delay, as the project stores them.
+    await engine.current.useSound(nova.moduleUrl, await call("soundSettings", projectId), a.bpm);
+    engine.current.setFx(fxRef.current);
   }, [preview, projectId]);
 
   const stop = useCallback((): void => {
@@ -107,6 +113,12 @@ export function usePlayer(projectId: string | null, version: number) {
       sched.current = s; setPlaying(true); setError(null);
     } catch (e) { setError((e as Error).message); }
   }, [projectId, output, clock, send, target, preview, prepare]);
+
+  /** The FX switch (built-in preview only): off plays every track dry, without patch effects or drum knobs. */
+  const setFx = useCallback((on: boolean): void => {
+    fxRef.current = on; setFxState(on); remember(FX_KEY, on ? "on" : "off");
+    engine.current?.setFx(on);
+  }, []);
 
   /** Changes what plays. While playing, the new part starts from its beginning at once. */
   const choosePlayFrom = useCallback((f: PlayFrom, start = false): void => {
@@ -155,5 +167,5 @@ export function usePlayer(projectId: string | null, version: number) {
 
   const choosePort = (id: string): void => { if (playing) stop(); setPortId(id || null); if (id) remember(PORT_KEY, id); };
   const chooseTarget = (t: PlayTarget): void => { if (playing) stop(); setTarget(t); remember(TARGET_KEY, t); };
-  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error, liveOutput: output, playFrom, choosePlayFrom };
+  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error, liveOutput: output, playFrom, choosePlayFrom, fx, setFx };
 }
