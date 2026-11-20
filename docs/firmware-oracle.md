@@ -26,7 +26,9 @@ Python is used for the sweep and the oracle because they drive `unicorn` and `ds
 - **Distortion level (CC 91) has an offset:** `X:$3F0` equals (value + 44) × 0x10000, reaching its maximum at value 83.
 - **Portamento** is two words at note-on (`Y:$15A`, `Y:$15B`); pitch for oscillator 1 is `Y:$148`.
 
-These are the DSP's own units. Turning them into hertz and seconds needs either the DSP code or rendered audio, which is why the oracle matters. Until then they replace guesses only where the unit is already a simple fraction.
+These are the DSP's own units. Converting them to hertz and seconds turned out not to need the silent master mix: the DSP's per-synth buffers and envelope slots are enough. The results are in [`firmware-curves.md`](firmware-curves.md) (filter, envelopes, portamento, EQ mid and treble, chorus rate).
+
+**Boot tables:** the ARM routine `0x08029710` writes two 35-word tables at `X:$98E` and `X:$9B1` at boot ([firmware-boot.md](firmware-boot.md) calls them gain-law tables; their ratios also match the LFO sync ladder, and the chorus rate code reads them). The plain `dsp_session.Session` never runs it, so they read 0 unless replayed: `Oracle(boot=True)` does, and so does `measure-curves.py` for the chorus.
 
 ## How the stand-in works
 
@@ -55,7 +57,7 @@ Next steps:
 1. Watch every writer of `X:$2C00–$2CFF` and `X:$2EB0–$2EFF` to learn which routine fills the master gain arrays and what it waits for. The buffers at `$2EB0/$2EF0` are inputs of the reverb/delay returns (`P:$CB8`), so the dry path may need a different trigger.
 2. Check the mixer parameters the ARM sends when a project loads (track levels, sends), which a bare RAM dump may not include; the sweep tool can find the CC or NRPN that moves them.
 3. Supply a sine for wave 0 and the second oscillator's zone (`$100000…`, `$102000…`), which is still all zeros.
-4. Once the ring sounds, compare against `curves.ts`: render each swept parameter and fit hertz and seconds.
+4. Once the ring sounds, check the fitted curves in `firmware-curves.md` against rendered audio.
 
 ## Running it
 

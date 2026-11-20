@@ -1,6 +1,11 @@
 // Unit conversions for the effects. Every function here is marked: "exact" (from the firmware or the
 // reference), "dsp-units" (the firmware's own word is known, its meaning in seconds or hertz is not),
-// or "guess". Replacing a guess with a measured curve only touches this file.
+// "firmware sweep" (fitted from the stock firmware run in emulation, docs/firmware-curves.md), or "guess".
+// Replacing a guess with a measured curve only touches this file.
+import { LFO_SYNC_BEATS } from "../nova/lfo.ts";
+
+/** Chorus LFO: X:$997 phase units per block at full rate, 1 500 blocks a second, 2^24 units a cycle. */
+const CHORUS_RATE_HZ = (58197 * 1500) / 2 ** 24;
 
 const bipolar = (v: number): number => (v >= 64 ? (v - 64) / 63 : (v - 64) / 64);
 
@@ -18,8 +23,10 @@ export const FX_CURVE_STATUS = {
   drumDecay: "guess (0x080287A0 not decoded; 127 = no limit)",
   drumDistortion: "guess (a table waveshaper in the DSP)",
   patchDistortion: "dsp-units for level ((v + 44) << 16, full at 83), shapes are guesses",
-  patchEq: "guess (frequencies and gain range)",
-  chorus: "guess (rate, depth, delay ranges)",
+  patchEq:
+    "firmware sweep for the mid centre (fit: linear in Hz, max error 4 %) and the treble corner (fit: quadratic in Hz, max error 1 %), measured in the emulated DSP; bass frequency and the gain range are guesses (the DSP's bass band is not a shelf, and level 0 is a notch / low cut, not −12 dB)",
+  chorus:
+    "rate: firmware (DSP P:$102E: (word)² × X:$997 phase per block, X:$997 from the boot table at 0x08029710; checked in emulation); sync: the note-length ladder of that table (= the LFO's); depth, delay, feedback: guess",
 } as const;
 
 // ── Mixer ─────────────────────────────────────────────────────────────────────────────────────────
@@ -145,17 +152,36 @@ export function distortionDrive(level: number): number {
 export function distortionCompensation(v: number): number { return v / 127; }
 
 export function eqBassHz(v: number): number { return 30 * 2 ** ((v / 127) * 5); }
-export function eqMidHz(v: number): number { return 150 * 2 ** ((v / 127) * 6); }
-export function eqTrebleHz(v: number): number { return 1000 * 2 ** ((v / 127) * 4.2); }
+/**
+ * Mid band centre, 0–127 → Hz (≈517 … ≈2 258 Hz). Firmware sweep: the word X:$3FE is value << 16; the
+ * centre of the emulated DSP's level-0 notch moves linearly in hertz (tools/firmware/fit-curves.ts).
+ */
+export function eqMidHz(v: number): number { return 516.8 + 13.706 * v; }
+/**
+ * Treble shelf corner (half the boost), 0–127 → Hz (≈1 158 … ≈4 944 Hz). Firmware sweep: word X:$3FC,
+ * measured on the emulated DSP's level-127 boost; a quadratic in the value.
+ */
+export function eqTrebleHz(v: number): number { return 1157.8 + 20.942 * v + 0.06987 * v * v; }
 /** EQ level 0–127 (64 = 0) → dB, ±12. */
 export function eqGainDb(v: number): number { return bipolar(v) * 12; }
 
 /** Chorus level 0–127 → wet amount. */
 export function chorusMix(v: number): number { return v / 127; }
-export function chorusRateHz(v: number): number { return 0.05 * 2 ** ((v / 127) * 7.6); }
+/**
+ * Chorus free rate, 0–127 → Hz (0 … ≈5.1 Hz). Firmware: per 32-frame block the LFO phase (2^24 per cycle)
+ * advances by (word)² × X:$997, word = value / 128 and X:$997 = 58 197 (boot table, ARM 0x08029710).
+ */
+export function chorusRateHz(v: number): number { return (v / 128) ** 2 * CHORUS_RATE_HZ; }
+
+/**
+ * Note lengths (quarter notes) for the chorus's sync values 1–35. The firmware's sync table (X:$98E,
+ * written at boot) has exactly the ratios of the LFO's ladder (1, 1.5, 2, 3 … 768), so it is shared.
+ */
+export const CHORUS_SYNC_BEATS: readonly number[] = LFO_SYNC_BEATS;
+
 /** Chorus rate in hertz: sync 1–35 is one cycle per note length at `bpm`. */
 export function chorusRate(rate: number, sync: number, bpm: number): number {
-  const beats = SYNC_BEATS[sync] ?? 0;
+  const beats = CHORUS_SYNC_BEATS[sync] ?? 0;
   return sync > 0 && beats > 0 ? 1 / (beats * (60 / bpm)) : chorusRateHz(rate);
 }
 export function chorusDelaySeconds(v: number): number { return 0.002 + (v / 127) * 0.025; }

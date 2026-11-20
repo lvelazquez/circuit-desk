@@ -90,10 +90,10 @@ export function novaParams(raw: Readonly<Record<string, number>>, macroPositions
   const env = (n: 1 | 2 | 3) => ({
     velocity: n === 3 ? 0 : C.bipolar(g(`env${n}.velocity`)),
     delay: n === 3 ? C.envelopeSeconds(g("env3.delay")) : 0,
-    attack: C.envelopeSeconds(g(`env${n}.attack`)),
-    decay: C.envelopeSeconds(g(`env${n}.decay`)),
+    attack: C.envelopeSeconds(g(`env${n}.attack`), "attack", n),
+    decay: C.envelopeSeconds(g(`env${n}.decay`), "decay", n),
     sustain: g(`env${n}.sustain`) / 127,
-    release: C.envelopeSeconds(g(`env${n}.release`)),
+    release: C.envelopeSeconds(g(`env${n}.release`), "release", n),
   });
   return {
     polyphony: Math.min(2, g("voice.polyphony")) as 0 | 1 | 2,

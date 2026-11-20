@@ -72,7 +72,9 @@ describe("Nova voice (slice)", () => {
   it("starts a note on its exact frame", () => {
     const x = render(values({ "env1.attack": 0 }), (s) => s.schedule({ frame: 1000, type: "on", note: 60, velocity: 127 }), 0.1);
     expect(x.subarray(0, 1000).every((v) => v === 0)).toBe(true);
-    expect(Math.max(...Array.from(x.subarray(1000, 1100), Math.abs))).toBeGreaterThan(0.01);
+    // Env 1's fastest attack is the firmware's 22 ms ramp, so the first 100 frames are quiet but not silent.
+    expect(Math.max(...Array.from(x.subarray(1000, 1100), Math.abs))).toBeGreaterThan(0.001);
+    expect(Math.max(...Array.from(x.subarray(1000, 2200), Math.abs))).toBeGreaterThan(0.01);
   });
 
   it("releases to silence after note off", () => {

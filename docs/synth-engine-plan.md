@@ -63,7 +63,21 @@
 - **Card:** `tools/nova-levels.ts` (new `--no-lfo` flag) goes from 7 silent patches (Bendy Piano ×3, Orbit ×2, Episodes ×2) to none. p10 peak 0.118 → 0.139; above 1.0 unchanged at 145.
 - **Wavetables, from the same search:** official names for waves 14–29 only. The UltraNova guide says its wavetables have 9 frames each and describes index and interpolate. Nothing confirms whether the Circuit's 16 tables are a subset of the UltraNova's 36, and no single-cycle dumps are published. NOTAS:732 (core 1 X memory layout per table and level) remains the best lead for E0.7.
 
-**Next:** find why the oracle is silent (one to two days, time-boxed), then LFOs 1–2, then convert the swept DSP words to hertz and seconds.
+**Curves from the firmware (2026-11-20, E0.6 / Track 2a):** method, per-curve status and errors are in [`firmware-curves.md`](firmware-curves.md).
+- **Derived** from the stock DSP code and its response in emulation (`tools/firmware/measure-curves.py`, `fit-curves.ts`):
+  - filter frequency: one semitone per step, 1 649.6 Hz at 64, flat from 111;
+  - envelope attack, decay and release: four shared tables with exact per-envelope index offsets;
+  - portamento, as an octave settle time;
+  - patch EQ mid and treble frequencies;
+  - chorus free rate (needs the ARM boot tables from `0x08029710`);
+  - chorus sync ladder (= the LFO's).
+- **Still guesses:** EQ bass and gain, chorus delay/depth/feedback, absolute sync rates, project delay and reverb, resonance, LFO rate.
+- **Owner decisions:** keep the firmware's 22 ms env 1 attack floor; keep a linear glide with the fitted time.
+- **Card:**
+  - nova-levels: silent 0 → 2 (one slow pad); median 0.407 → 0.411.
+  - synth-audit: quiet 12 → 17. The cause is the env 1 attack floor; `VOICE_GAIN` is unchanged.
+
+**Next:** find why the oracle is silent (time-boxed), then the remaining curves in `firmware-curves.md` (the sync scale `X:$15`, the chorus delay line, EQ bass).
 
 **Rule for this plan:** no device or card writes. Device reads (SysEx dump requests, the `fwid` query) need approval at the time. Firmware-derived data stays local and is never committed (§5).
 
