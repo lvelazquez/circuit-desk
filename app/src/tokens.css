@@ -66,6 +66,9 @@
   --size-fx-panel: 230px;
   --size-slider-value: 36px;
   --size-text-input: 260px;
+  --size-tooltip: 280px;
+  /* Room a tooltip needs below its trigger before it flips above. */
+  --size-tooltip-room: 96px;
   /* Steps in a pattern: a fixed fact of the device, kept here so layout math names it. */
   --count-steps: 32;
   --size-velocity-bar: 60%;
@@ -100,6 +103,8 @@
   --motion-duration-medium: 160ms;
   --motion-easing-smooth-out: cubic-bezier(0.2, 0, 0, 1);
   --motion-easing-smooth-in: cubic-bezier(0.4, 0, 1, 1);
+  /* How long the pointer rests on a control before its tooltip shows (keyboard focus shows it at once). Not motion: kept under reduced motion. */
+  --motion-delay-tooltip: 500ms;
 }
 
 @media (prefers-reduced-motion: reduce) {

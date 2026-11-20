@@ -7,6 +7,7 @@ import type { MenuCommand } from "../electron/api.ts";
 import { CircuitView } from "./CircuitView.tsx";
 import { bridge, call, type DrumPatternData, type Listing, type PatternData, type Scenes, type Settings, type Summary } from "./desk.ts";
 import { MixerView } from "./MixerView.tsx";
+import { Tooltips } from "./Tooltips.tsx";
 import { setNoteRoot } from "./model.ts";
 import { ProjectView } from "./ProjectView.tsx";
 import type { SettingsEdit } from "@circuit-desk/ncs";
@@ -30,6 +31,14 @@ const VIEWS: readonly { id: View; label: string }[] = [
   { id: "circuit", label: "Circuit" }, { id: "editor", label: "Editor" }, { id: "scenes", label: "Scenes" },
   { id: "mixer", label: "Mixer" }, { id: "project", label: "Project" }, { id: "pack", label: "Pack" },
 ];
+const VIEW_TIPS: Record<View, string> = {
+  circuit: "The device: track buttons, pattern pads, and the 32-pad grid for steps and notes.",
+  editor: "Piano roll, velocity lane, automation lanes and the drum grid for the pattern.",
+  scenes: "The 16 scenes: which patterns each track plays, and the scene chain.",
+  mixer: "Levels, pans, reverb and delay sends, mute and solo, the project FX and the sidechains.",
+  project: "Name, tempo, swing, scale and root, and each drum's sample and knobs.",
+  pack: "The pack's 64 drum samples and its synth patch banks, to audition.",
+};
 type Firmware = Awaited<ReturnType<typeof call<"firmware">>>;
 const FIRMWARE_KEY = "circuit-desk.firmware";
 function remembered(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
@@ -281,14 +290,14 @@ export function App() {
         <h1>Circuit Desk</h1>
         <span className="project-name">{summary ? `${summary.name} · ${summary.tempo.value} BPM${summary.edits ? ` · ${summary.edits} edits` : ""}` : "No project"}</span>
         <div role="group" aria-label="View" className="row" style={{ margin: 0 }}>
-          {VIEWS.map((v) => <button key={v.id} type="button" className="btn" aria-pressed={view === v.id} onClick={() => setView(v.id)}>{v.label}</button>)}
+          {VIEWS.map((v) => <button key={v.id} type="button" className="btn" aria-pressed={view === v.id} data-tip={`${VIEW_TIPS[v.id]} ⌘1 goes to the next view.`} onClick={() => setView(v.id)}>{v.label}</button>)}
         </div>
         <div role="group" aria-label="Transport" className="row" style={{ margin: 0 }}>
-          <button type="button" className="btn" aria-pressed={player.playing} disabled={!projectId}
+          <button type="button" className="btn" aria-pressed={player.playing} disabled={!projectId} data-tip="Play or stop (⌘↩). Plays what the menu beside it says, to the output chosen after it. Edits made while playing are heard at once."
             onClick={() => (player.playing ? player.stop() : void player.play())}>{player.playing ? "■ Stop" : "▶ Play"}</button>
           <label className="visually-hidden" htmlFor="play-from">What plays</label>
           <select id="play-from" value={playFromValue(player.playFrom)} disabled={!projectId} onChange={(e) => player.choosePlayFrom(parsePlayFrom(e.target.value))}
-            title="What the Play button plays. Changing it while playing starts the new part from its beginning.">
+            data-tip="What Play plays: the current pattern chains, the scene chain, one scene, or one pattern on every track. Changing it while playing starts the new part from its beginning.">
             <option value="current">Current patterns</option>
             <option value="scenes">Scene chain</option>
             <optgroup label="One scene">
@@ -299,35 +308,36 @@ export function App() {
             </optgroup>
           </select>
           <label className="visually-hidden" htmlFor="midi-out">MIDI output</label>
-          <select id="midi-out" value={player.portId ?? ""} onChange={(e) => player.choosePort(e.target.value)}>
+          <select id="midi-out" value={player.portId ?? ""} onChange={(e) => player.choosePort(e.target.value)}
+            data-tip="Where playback goes. Built-in preview: the app's own sound (pack drums, Synth 1/2 patches, approximate FX). A MIDI port: your Circuit (load the same project on it) or Live through the IAC bus.">
             <option value="">{player.ports.length ? "MIDI output…" : "No MIDI outputs"}</option>
             {player.ports.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
           <label className="visually-hidden" htmlFor="play-target">Plays to (Circuit, or the Live play-along set)</label>
           <select id="play-target" value={player.target} onChange={(e) => player.chooseTarget(e.target.value === "live" ? "live" : "circuit")}
-            title="Circuit: the device's channels and drum notes. Live: the play-along set's (drums on channels 10–13, kit keys).">
+            data-tip="Which channels and notes playback uses on a MIDI port. Circuit: the device's defaults. Live set: the exported play-along set's (drums on channels 10–13, kit keys).">
             <option value="circuit">→ Circuit</option>
             <option value="live">→ Live set</option>
           </select>
-          <label><input type="checkbox" checked={player.clock} disabled={player.playing} onChange={(e) => player.setClock(e.target.checked)} /> Clock</label>
+          <label data-tip="Also send MIDI clock with start and stop, so the device or Live follows the app's tempo. Set before pressing Play."><input type="checkbox" checked={player.clock} disabled={player.playing} onChange={(e) => player.setClock(e.target.checked)} /> Clock</label>
           <button type="button" className="btn" aria-pressed={player.fx} disabled={player.portId !== "preview"}
-            title="Built-in preview: track levels and pans, sidechains, drum knobs, patch distortion, EQ and chorus, reverb and delay. Reverb, delay, chorus and distortion are approximations; levels, pans, drum pitch and drum EQ follow the firmware."
+            data-tip="Built-in preview only. On: track levels and pans, sidechains, drum knobs, patch distortion, EQ and chorus, reverb and delay. Off: every track dry, to compare. Reverb, delay, chorus and distortion are approximations."
             onClick={() => player.setFx(!player.fx)}>FX {player.fx ? "on" : "off"}</button>
           <button type="button" className="btn" aria-pressed={keys.on} disabled={!keySound}
-            title="Play the synth sound from the computer keyboard: A–; notes, W E T Y U O P sharps, Z/X octave, C/V velocity, Esc off"
+            data-tip="Play the current synth sound (or the chosen pack patch) from the computer keyboard: A to ; are notes, W E T Y U O P sharps, Z/X octave, C/V velocity, Esc turns it off. Playing keys never edits the project."
             onClick={() => keys.setOn(!keys.on)}>⌨ Keys</button>
         </div>
         <label className="visually-hidden" htmlFor="firmware">Firmware on your Circuit Tracks</label>
         <select id="firmware" value={firmware?.current.id ?? ""} disabled={!firmware} onChange={(e) => chooseFirmware(e.target.value)}
-          title={firmware ? `Firmware on your Circuit Tracks: ${firmware.current.name} ${firmware.current.versions}. ${firmware.current.description}` : undefined}>
+          data-tip={firmware ? `The firmware on your Circuit Tracks: ${firmware.current.name} ${firmware.current.versions}. ${firmware.current.description} It decides what the MIDI tracks and CIRCUIT-HACKS data mean.` : "The firmware on your Circuit Tracks."}>
           {firmware?.available.map((f) => <option key={f.id} value={f.id}>{f.short}</option>)}
         </select>
-        <button type="button" className="btn" onClick={() => void pick()}>Open…</button>
-        <button type="button" className="btn" disabled={!summary?.edits} onClick={() => void undo()}>Undo</button>
-        <button type="button" className="btn" disabled={!summary?.canRedo} onClick={() => void undo(true)}>Redo</button>
-        <button type="button" className="btn" disabled={!projectId} onClick={() => void saveCopy()}>Save a copy</button>
-        <button type="button" className="btn" disabled={!projectId} onClick={() => void exportTo("midi")}>Export MIDI</button>
-        <button type="button" className="btn" disabled={!projectId} onClick={() => void exportTo("als")}>Export Live set</button>
+        <button type="button" className="btn" onClick={() => void pick()} data-tip="Open a project file (.ncs) from anywhere (⌘O). The library on the left lists your card copy.">Open…</button>
+        <button type="button" className="btn" disabled={!summary?.edits} onClick={() => void undo()} data-tip="Undo the last edit to this project (⌘Z). Every edit, from the app or from Claude over MCP, is in the same history.">Undo</button>
+        <button type="button" className="btn" disabled={!summary?.canRedo} onClick={() => void undo(true)} data-tip="Redo the last undone edit (⇧⌘Z).">Redo</button>
+        <button type="button" className="btn" disabled={!projectId} onClick={() => void saveCopy()} data-tip="Write the edited project as a new file in ~/Circuit Desk/Copies (⌘S). The original file and the SD card are never changed.">Save a copy</button>
+        <button type="button" className="btn" disabled={!projectId} onClick={() => void exportTo("midi")} data-tip="Export a multitrack MIDI file of the arrangement, with automation as CC, to ~/Circuit Desk/Exports.">Export MIDI</button>
+        <button type="button" className="btn" disabled={!projectId} onClick={() => void exportTo("als")} data-tip="Export an Ableton Live 12 set: patterns as Session clips, scenes as scenes, the arrangement as clips; plus a play-along set that listens to the app over the IAC bus.">Export Live set</button>
       </header>
       <div className="main">
         <Library items={library} current={current} onOpen={(p) => void open(p)} />
@@ -349,12 +359,12 @@ export function App() {
               <>
                 <div className="row">
                   <label>Track
-                    <select value={track} onChange={(e) => chooseTrack(e.target.value as TrackName)}>
+                    <select data-tip="The note track shown in the piano roll." value={track} onChange={(e) => chooseTrack(e.target.value as TrackName)}>
                       {["Synth 1", "Synth 2", "MIDI 1", "MIDI 2"].map((t) => <option key={t}>{t}</option>)}
                     </select>
                   </label>
                   <label>Pattern
-                    <select value={pattern} onChange={(e) => choosePattern(Number(e.target.value))}>
+                    <select data-tip="The pattern shown in the piano roll and the drum grid." value={pattern} onChange={(e) => choosePattern(Number(e.target.value))}>
                       {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </label>
@@ -377,7 +387,7 @@ export function App() {
       </div>
       <footer className="statusbar">
         <button type="button" className="btn btn-small" onClick={() => void capture()}
-          title="Save the last 10 seconds of sound, with the notes and patches, to report a glitch (Transport › Capture Last 10 Seconds, ⇧⌘R)">⏺ Capture sound</button>
+          data-tip="Heard a glitch? Save the last 10 seconds of sound with the notes and patches that made it (⇧⌘R), to Exports/Reports, so it can be replayed and found.">⏺ Capture sound</button>
         <span role="status" aria-live="polite" className={status.error ? "error" : undefined}>{status.text}</span>
         {player.error && <span role="alert" className="error">{player.error}</span>}
         {!player.error && player.ports.length <= 1 && (
@@ -389,6 +399,7 @@ export function App() {
           {keys.on && keySound ? `Keys: ${keySound.label} · ${keySound.previewOnly || !player.liveOutput() ? "preview" : "MIDI out"} · octave C${keys.octave} · velocity ${keys.velocity} (Z/X, C/V, Esc)` : ""}
         </span>
       </footer>
+      <Tooltips />
     </div>
   );
 }

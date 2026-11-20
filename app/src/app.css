@@ -185,3 +185,12 @@ button, input, select { font: inherit; color: inherit; }
 .slider output { font-family: var(--font-family-mono); font-size: var(--font-size-xs); color: var(--color-text-primary); text-align: right; }
 .project-settings > .fx-panel { margin-bottom: var(--space-md); max-width: calc(var(--size-fx-panel) * 2); }
 .pad.key[data-gap="true"] { background: var(--color-outside-range); cursor: default; }
+
+/* Tooltip (Tooltips.tsx): grows from its trigger, Fast/SmoothOut; leaves at once. */
+.tooltip { position: fixed; z-index: 100; max-width: var(--size-tooltip); width: max-content; transform: translateX(-50%); transform-origin: top center;
+  background: var(--color-surface-raised); color: var(--color-text-primary); border: var(--size-border) solid var(--color-border-strong); border-radius: var(--radius-control);
+  padding: var(--space-xs) var(--space-sm); font-size: var(--font-size-sm); line-height: var(--line-height-body); white-space: normal;
+  animation: tooltip-in var(--motion-duration-fast) var(--motion-easing-smooth-out); }
+.tooltip[data-side="above"] { transform: translate(-50%, -100%); transform-origin: bottom center; }
+.tooltip[hidden] { display: none; }
+@keyframes tooltip-in { from { opacity: 0; scale: 0.96; } }

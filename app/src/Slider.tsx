@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
  * A 0–127 (or other range) slider that shows its value while it moves and commits once: on
  * pointer release, on a key release, or on blur. Each commit is one undoable edit.
  */
-export function Slider({ label, value, min = 0, max = 127, onCommit, text, hideLabel }: {
+export function Slider({ label, value, min = 0, max = 127, onCommit, text, hideLabel, tip }: {
   label: string; value: number; min?: number; max?: number; onCommit: (v: number) => void;
   /** The value as words, for the readout and screen readers (e.g. "L 20", "centre"). */
   text?: (v: number) => string;
   hideLabel?: boolean;
+  /** Tooltip: what the control does. */
+  tip?: string;
 }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
@@ -17,7 +19,7 @@ export function Slider({ label, value, min = 0, max = 127, onCommit, text, hideL
   return (
     <label className="slider">
       <span className={hideLabel ? "visually-hidden" : "slider-label"}>{label}</span>
-      <input type="range" min={min} max={max} step={1} value={v} aria-valuetext={shown}
+      <input type="range" min={min} max={max} step={1} value={v} aria-valuetext={shown} data-tip={tip}
         onChange={(e) => setV(Number(e.target.value))} onPointerUp={commit} onKeyUp={commit} onBlur={commit} />
       <output aria-hidden="true">{shown}</output>
     </label>

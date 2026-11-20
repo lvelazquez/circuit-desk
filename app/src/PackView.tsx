@@ -45,7 +45,7 @@ export function PackView({ projectId, version, firmware, chosen, onPatch }: {
           const used = users(s.index);
           return (
             <div role="listitem" key={s.index}>
-              <button type="button" className="pad sample" data-on={used.length > 0} data-selected={last === s.index}
+              <button type="button" className="pad sample" data-tip={`Hear sample ${s.index + 1}. Lit in a drum's colour: that drum uses it. Choose a drum's sample in the Project view.`} data-on={used.length > 0} data-selected={last === s.index}
                 style={used[0] ? trackStyle(used[0]) : undefined}
                 aria-label={`Play sample ${s.index + 1}, ${s.name}${used.length ? `, used by ${used.join(" and ")}` : ""}`}
                 onClick={() => void play(s.index)}>
@@ -70,7 +70,7 @@ export function PackView({ projectId, version, firmware, chosen, onPatch }: {
               const selected = chosen?.bank === b.bank && chosen.record === p.record;
               return (
                 <div role="listitem" key={p.record}>
-                  <button type="button" className="pad sample patch" data-selected={selected} aria-pressed={selected}
+                  <button type="button" className="pad sample patch" data-tip={`Hear ${p.name || "this patch"} on the preview, and make it the sound Keys plays.${p.ownSynthData ? " CH: it also holds CIRCUIT-HACKS synth data." : ""}`} data-selected={selected} aria-pressed={selected}
                     aria-label={`Hear patch ${p.name || "unnamed"}, ${p.category}, bank ${b.bank + 1} slot ${p.record + 1}${p.ownSynthData ? `, ${ownSynthLabel}` : ""}`}
                     onClick={() => onPatch({ bank: b.bank, record: p.record, name: p.name })}>
                     <span className="pad-num" aria-hidden="true">{p.record + 1}</span>

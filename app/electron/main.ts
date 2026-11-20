@@ -79,7 +79,7 @@ function menu(): void {
     // Undo and redo go to the window, which undoes text in a focused field or the project's last edit.
     { label: "Edit", submenu: [item("Undo", "CmdOrCtrl+Z", "undo"), item("Redo", "Shift+CmdOrCtrl+Z", "redo"), { type: "separator" }, { role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" }] },
     { label: "Transport", submenu: [item("Play / Stop", "CmdOrCtrl+Return", "play"), { type: "separator" }, item("Capture Last 10 Seconds (Sound Report)", "Shift+CmdOrCtrl+R", "capture")] },
-    { label: "View", submenu: [item("Next View (Circuit, Editor, Scenes, Pack)", "CmdOrCtrl+1", "toggle-view"), { type: "separator" }, { role: "reload" }, { role: "toggleDevTools" }, { role: "togglefullscreen" }] },
+    { label: "View", submenu: [item("Next View (Circuit, Editor, Scenes, Mixer, Project, Pack)", "CmdOrCtrl+1", "toggle-view"), { type: "separator" }, { role: "reload" }, { role: "toggleDevTools" }, { role: "togglefullscreen" }] },
     { role: "windowMenu" },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

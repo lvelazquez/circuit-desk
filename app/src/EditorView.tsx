@@ -127,7 +127,7 @@ export function PianoRoll({ projectId, version, track, pattern, data, onNoteStep
 
   return (
     <section aria-label={`${track} pattern ${pattern} piano roll`} style={trackStyle(track)}>
-      <div className="roll" tabIndex={0} role="application" aria-roledescription="piano roll" aria-label={`${track} pattern ${pattern} piano roll`}
+      <div className="roll" tabIndex={0} role="application" data-tip="Piano roll: arrows move the cursor, Enter or a double-click adds or removes a note, drag a note to move it or its end to resize it. Full keys below." aria-roledescription="piano roll" aria-label={`${track} pattern ${pattern} piano roll`}
         aria-describedby="roll-help" onKeyDown={onKeyDown} onScroll={(e) => { if (lane.current) lane.current.scrollLeft = e.currentTarget.scrollLeft; }}>
         <div className="roll-keys" aria-hidden="true">
           {rows.map((n) => <div key={n} className="roll-key" data-black={isBlackKey(n)}>{n % 12 === 0 ? noteName(n) : ""}</div>)}
@@ -184,7 +184,7 @@ export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps, play
                 const toggle = (): void => { onSelect(name, s); onDrumSteps(name, [{ step: s, velocity: h ? 0 : 100 }], `${name} step ${s}`); };
                 return (
                   <div role="gridcell" key={k} style={{ display: "contents" }}>
-                    <button ref={roving.ref(cell)} type="button" className="drum-cell" style={trackStyle(name)} tabIndex={roving.tabIndex(cell)}
+                    <button ref={roving.ref(cell)} type="button" className="drum-cell" style={trackStyle(name)} tabIndex={roving.tabIndex(cell)} data-tip={`${name} step ${s}: click to add or remove a hit; the Inspector edits it. A number means extra micro-step hits.`}
                       data-on={!!h} data-beat={k > 0 && k % 4 === 0} data-selected={selected?.drum === name && selected.step === s} data-playing={playSteps[r] === s}
                       aria-pressed={!!h} aria-label={`${name} step ${s}: ${h ? `velocity ${h.velocity}` : "empty"}`}
                       onClick={() => { roving.setActive(cell); toggle(); }}
@@ -241,7 +241,7 @@ export function AutomationLanes({ projectId, version, track, pattern, onLaneEdit
       {free.length > 0 && (
         <label className="row lane-add">
           <span>Add a lane</span>
-          <select value="" onChange={(e) => { const n = Number(e.target.value); if (n) setAdded((a) => [...a, n]); }}>
+          <select data-tip="Show another automation lane to draw in: macros, level, pan, sends, or drum knobs." value="" onChange={(e) => { const n = Number(e.target.value); if (n) setAdded((a) => [...a, n]); }}>
             <option value="">Choose…</option>
             {free.map((f) => <option key={f.lane} value={f.lane}>{f.lane}. {f.name}</option>)}
           </select>
@@ -342,7 +342,7 @@ function LaneEditor({ lane, name, points, onCommit }: { lane: number; name: stri
   const here = shown[cursor];
   return (
     <div className="lane-row">
-      <div ref={ref} className="lane-points" tabIndex={0} role="group" data-focused={focused}
+      <div ref={ref} className="lane-points" tabIndex={0} role="group" data-focused={focused} data-tip={`Lane ${lane}, ${name}: drag to draw (Alt erases). Focused: Left/Right move, Up/Down change the value, Delete removes. A value holds until the next point; 6 points per step.`}
         aria-label={`Lane ${lane}, ${name}: ${summary}`} aria-describedby="lane-help"
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}
         onKeyDown={onKeyDown} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}>
@@ -351,7 +351,7 @@ function LaneEditor({ lane, name, points, onCommit }: { lane: number; name: stri
       <span className="lane-name">
         {lane}. {name}{focused ? ` · ${where(cursor)}: ${here ?? "no point"}` : ""}
         {/* Always present, so the row keeps its height while drawing starts. */}
-        <button type="button" className="btn btn-small" disabled={!vals.length} onClick={() => commit(new Array<number | null>(LANE_POINTS).fill(null), "cleared the lane")}>Clear lane {lane}</button>
+        <button type="button" className="btn btn-small" data-tip="Remove every point of this lane (one undoable edit)." disabled={!vals.length} onClick={() => commit(new Array<number | null>(LANE_POINTS).fill(null), "cleared the lane")}>Clear lane {lane}</button>
       </span>
       <span className="visually-hidden" aria-live="polite">{focused ? `${where(cursor)}: ${here ?? "no point"}` : ""}</span>
     </div>
@@ -365,7 +365,7 @@ export function DrumAutomation({ projectId, version, pattern, onLaneEdit }: { pr
     <section aria-label="Drum automation" className="drum-automation">
       <label className="row">
         <span>Automation of</span>
-        <select value={drum} onChange={(e) => setDrum(e.target.value as DrumTrackName)}>
+        <select data-tip="Which drum's automation lanes to show below." value={drum} onChange={(e) => setDrum(e.target.value as DrumTrackName)}>
           {DRUM_NAMES.map((d) => <option key={d} value={d}>{d}</option>)}
         </select>
       </label>

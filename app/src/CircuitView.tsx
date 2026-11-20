@@ -64,16 +64,17 @@ export function CircuitView(p: CircuitProps) {
   return (
     <section className="device" aria-label="Circuit" style={trackStyle(p.track)}>
       <RadioRow label="Track" items={TRACK_NAMES} value={p.track} onChange={p.onTrack} render={(t) => t} className="tracks" itemClass="track-btn"
-        extra={(t) => ({ style: trackStyle(t) })} />
+        extra={(t) => ({ style: trackStyle(t), "data-tip": `Show ${t}'s pattern on the grid${t.startsWith("Drum") ? " (32 steps)" : " (steps and keyboard)"}. Arrow keys move between tracks.` })} />
       <div>
         <RadioRow label="Pattern" items={[1, 2, 3, 4, 5, 6, 7, 8]} value={p.pattern} onChange={p.onPattern}
           render={(n) => `${n}${used.has(n) ? " •" : ""}`} className="patterns" itemClass="pattern-pad"
-          extra={(n) => ({ "data-used": used.has(n), "data-playing": n === p.playingPattern, "aria-label": `Pattern ${n}${used.has(n) ? ", has notes" : ", empty"}${n === p.playingPattern ? ", playing" : ""}` })} />
+          extra={(n) => ({ "data-used": used.has(n), "data-playing": n === p.playingPattern, "data-tip": `Edit pattern ${n} of ${p.track}. A dot means it has notes; an outline means it is playing.`, "aria-label": `Pattern ${n}${used.has(n) ? ", has notes" : ", empty"}${n === p.playingPattern ? ", playing" : ""}` })} />
         <div className="row">
-          <button type="button" className="btn btn-small" onClick={() => p.onPlayPattern(p.pattern)}>▶ Play pattern {p.pattern} on all tracks</button>
+          <button type="button" className="btn btn-small" onClick={() => p.onPlayPattern(p.pattern)} data-tip="Play this pattern number on all eight tracks at once, looping (sets the play menu to One pattern).">▶ Play pattern {p.pattern} on all tracks</button>
         </div>
         {p.data.kind === "notes" ? <NoteGrid {...p} data={p.data} /> : <DrumPads {...p} data={p.data} />}
-        <div className="knobs" aria-label="Macro knobs (read-only: synth patches are not decoded yet)" role="group">
+        <div className="knobs" aria-label="Macro knobs (read-only: synth patches are not decoded yet)" role="group"
+          data-tip="The eight macro knobs of the track's patch. Shown only for now: macro moves can be drawn as automation in the Editor's lanes 1–8.">
           {Array.from({ length: 8 }, (_, k) => <div key={k} className="knob" aria-disabled="true"><span aria-hidden="true" /><span>Macro {k + 1}</span></div>)}
         </div>
       </div>
@@ -120,11 +121,11 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
     <>
       <div className="row">
         <div role="group" aria-label="Step page" className="row">
-          <button type="button" className="btn" aria-pressed={p.page === 0} onClick={() => p.onPage(0)}>Steps 1–16</button>
-          <button type="button" className="btn" aria-pressed={p.page === 1} onClick={() => p.onPage(1)}>Steps 17–32</button>
+          <button type="button" className="btn" aria-pressed={p.page === 0} onClick={() => p.onPage(0)} data-tip="Show steps 1–16 on the top two rows of pads.">Steps 1–16</button>
+          <button type="button" className="btn" aria-pressed={p.page === 1} onClick={() => p.onPage(1)} data-tip="Show steps 17–32 (a pattern can be up to 32 steps long).">Steps 17–32</button>
         </div>
-        <button type="button" className="btn" onClick={() => p.onOctave(Math.max(0, p.octave - 12))} disabled={p.octave <= 0}>Octave ▼</button>
-        <button type="button" className="btn" onClick={() => p.onOctave(Math.min(112, p.octave + 12))} disabled={p.octave >= 112}>Octave ▲</button>
+        <button type="button" className="btn" onClick={() => p.onOctave(Math.max(0, p.octave - 12))} disabled={p.octave <= 0} data-tip="Move the keyboard pads down an octave.">Octave ▼</button>
+        <button type="button" className="btn" onClick={() => p.onOctave(Math.min(112, p.octave + 12))} disabled={p.octave >= 112} data-tip="Move the keyboard pads up an octave.">Octave ▲</button>
         <span className="hint">{p.scale ? `${SCALE_NAMES[p.scale.type]} · ` : ""}keys {noteName(Math.min(...keys))}–{noteName(Math.max(...keys))}</span>
       </div>
       <div role="grid" aria-label={`${p.track} pattern ${p.pattern}: steps and keyboard`} aria-describedby="note-grid-help" className="grid">
@@ -137,6 +138,7 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
                 return (
                   <div role="gridcell" key={cell} style={{ display: "contents" }}>
                     <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)}
+                      data-tip={`Step ${s}. Click an empty step to add the current note; click a lit one to select it, then press keys below to add or remove notes. Delete clears. The bar shows velocity.${outside ? " Dark: outside the pattern's first–last steps." : ""}`}
                       style={ns.length ? ({ "--vel": Math.max(...ns.map((n) => n.velocity)) / 127 } as CSSProperties) : undefined}
                       data-on={ns.length > 0} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
                       aria-pressed={ns.length > 0} aria-current={p.selectedStep === s}
@@ -153,7 +155,7 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
               if (key === null) {
                 return (
                   <div role="gridcell" key={cell} style={{ display: "contents" }}>
-                    <button ref={roving.ref(cell)} type="button" className="pad key" tabIndex={roving.tabIndex(cell)} data-gap="true" aria-label="No key here (piano layout)" aria-disabled="true"
+                    <button ref={roving.ref(cell)} type="button" className="pad key" tabIndex={roving.tabIndex(cell)} data-gap="true" data-tip="No sharp here: in Chromatic the pads are a piano, naturals below and sharps above." aria-label="No key here (piano layout)" aria-disabled="true"
                       onClick={() => roving.setActive(cell)} onKeyDown={(e) => onKeyDown(cell, e)} />
                   </div>
                 );
@@ -161,7 +163,7 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
               const held = selected.some((n) => n.note === key);
               return (
                 <div role="gridcell" key={cell} style={{ display: "contents" }}>
-                  <button ref={roving.ref(cell)} type="button" className="pad key" tabIndex={roving.tabIndex(cell)} data-black={isBlackKey(key)} data-root={key % 12 === 0} data-used={usedPitches.has(key)}
+                  <button ref={roving.ref(cell)} type="button" className="pad key" tabIndex={roving.tabIndex(cell)} data-tip={`${noteName(key)}: with a step selected, adds or removes this note there; it also becomes the current note new steps get. Pads follow the project's scale; the outlined pads are the root. Tinted: used in this pattern.`} data-black={isBlackKey(key)} data-root={key % 12 === 0} data-used={usedPitches.has(key)}
                     aria-pressed={held} aria-label={`Key ${noteSpoken(key)}${held ? ", in the selected step" : ""}${key === p.currentNote ? ", current note" : ""}`}
                     disabled={key > 127} onClick={() => { roving.setActive(cell); pressKey(key); }} onKeyDown={(e) => onKeyDown(cell, e)}>
                     <span aria-hidden="true">{noteName(key)}{key === p.currentNote ? " ●" : ""}</span>
@@ -194,7 +196,7 @@ function DrumPads(p: CircuitProps & { data: DrumPatternData }) {
               const cell = r * 8 + c, s = cell + 1, h = hits.get(s), outside = s < first || s > last;
               return (
                 <div role="gridcell" key={cell} style={{ display: "contents" }}>
-                  <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)} style={h ? ({ "--vel": h.velocity / 127 } as CSSProperties) : undefined} data-on={!!h} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
+                  <button ref={roving.ref(cell)} type="button" className="pad" tabIndex={roving.tabIndex(cell)} data-tip={`Step ${s}: click to add or remove a hit. The Inspector edits its velocity, probability and micro-steps.`} style={h ? ({ "--vel": h.velocity / 127 } as CSSProperties) : undefined} data-on={!!h} data-selected={p.selectedStep === s} data-outside={outside} data-playing={p.playStep === s}
                     aria-pressed={!!h} aria-current={p.selectedStep === s}
                     aria-label={`Step ${s}: ${h ? `hit, velocity ${h.velocity}` : "empty"}${outside ? ", outside the pattern" : ""}`}
                     onClick={() => { roving.setActive(cell); toggle(s); }}

@@ -171,6 +171,53 @@ async function run(): Promise<void> {
   const reduced = await js<string>(`getComputedStyle(document.querySelector('.grid .pad')).transitionDuration`);
   check("pads animate normally and not under reduced motion", motion.includes("0.09s") && reduced.split(",").every((d) => d.trim() === "0s"), `${motion} → ${reduced}`);
   await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+
+  // Tooltips: every control in every view has one; hover shows it after the delay, keyboard focus
+  // at once, Escape hides it; it enters with Fast/SmoothOut and without motion under reduced motion.
+  const untipped: string[] = [];
+  for (const v of ["Circuit", "Editor", "Scenes", "Mixer", "Project", "Pack"]) {
+    await js(`[...document.querySelectorAll('button')].find(b => b.textContent === '${v}').click()`);
+    await wait(600);
+    untipped.push(...await js<string[]>(`[...document.querySelectorAll('.app button, .app select, .app input, .app [role=application], .app .lane-points')]
+      .filter(e => !e.closest('[data-tip]')).map(e => '${v}: ' + (e.getAttribute('aria-label') || e.textContent.trim().slice(0, 30) || e.id || e.tagName)).slice(0, 6)`));
+  }
+  check("every control has a tooltip", untipped.length === 0, untipped.join(" | "));
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
+  await wait(300);
+  const tipEl = `document.getElementById('app-tooltip')`;
+  const saveBox = await js<{ x: number; y: number }>(`(() => { const r = [...document.querySelectorAll('button')].find(b => b.textContent === 'Save a copy').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+  // Record the tooltip's animations the moment it appears (the entry is over in 90 ms).
+  await js(`window.__tipAnim = []; new MutationObserver(() => { const t = document.getElementById('app-tooltip'); if (t && !t.hidden) window.__tipAnim.push(t.getAnimations().map(a => a.effect.getTiming().duration + ' ' + a.effect.getKeyframes()[0].easing).join()); }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden'] })`);
+  wc.sendInputEvent({ type: "mouseMove", x: saveBox.x, y: saveBox.y });
+  await wait(250);
+  const early = await js<boolean>(`${tipEl}.hidden`);
+  const earlyText = await js<string>(`${tipEl}.textContent.slice(0, 50) + ' / active: ' + (document.activeElement?.textContent?.slice(0, 20) || document.activeElement?.className)`);
+  const shown = await until(`!${tipEl}.hidden && ${tipEl}.textContent.includes('Copies')`, 1500);
+  const described = await js<string>(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Save a copy').getAttribute('aria-describedby') ?? 'none'`);
+  check("hovering shows a tooltip after the delay, linked to its control", early && shown && described.includes("app-tooltip"), `hidden at 250 ms: ${early} (${earlyText}), shown: ${shown}, aria-describedby: ${described}`);
+  await wait(150);
+  writeFileSync(path.join(home, "tooltip.png"), (await wc.capturePage()).toPNG());
+  const timing = (await js<string[]>(`window.__tipAnim`)).find(Boolean) ?? "none";
+  check("the tooltip enters with Fast/SmoothOut", timing === "90 cubic-bezier(0.2, 0, 0, 1)", timing);
+  wc.sendInputEvent({ type: "mouseMove", x: 4, y: 4 });
+  check("leaving the control hides it", await until(`${tipEl}.hidden`));
+  // Focus events only fire in a window that has the system focus.
+  win.focus(); wc.focus();
+  await wait(200);
+  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Open…').focus()`);
+  await key("Tab");
+  check("keyboard focus shows the focused control's tooltip at once", await until(`!${tipEl}.hidden && ${tipEl}.textContent === document.activeElement.closest('[data-tip]')?.dataset.tip`, 300),
+    await js<string>(`JSON.stringify({ active: document.activeElement.textContent || document.activeElement.id, focusVisible: document.activeElement.matches(':focus-visible'), hidden: ${tipEl}.hidden, tip: ${tipEl}.textContent.slice(0, 40) })`));
+  await key("Escape");
+  check("Escape hides it", await until(`${tipEl}.hidden`));
+  await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await js(`window.__tipAnim = []`);
+  await key("Tab", ["shift"]); await key("Tab");
+  await until(`!${tipEl}.hidden`, 500);
+  const reducedTiming = await js<string>(`(${tipEl}.hidden ? 'hidden' : 'shown') + ', animation-duration ' + getComputedStyle(${tipEl}).animationDuration + ', running ' + ${tipEl}.getAnimations().filter(a => a.playState === 'running').length`);
+  check("under reduced motion the tooltip appears without motion", reducedTiming === "shown, animation-duration 0s, running 0", reducedTiming);
+  await key("Escape");
+  await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
   wc.debugger.detach();
 
   // Scenes: store the current chains in scene 2.

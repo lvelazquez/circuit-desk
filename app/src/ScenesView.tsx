@@ -26,7 +26,7 @@ export function ScenesView({ scenes, onSceneChain, onScene, playing, onPlayScene
       <div role="radiogroup" aria-label="Scene" className="grid">
         {scenes.scenes.map((s) => (
           <button key={s.scene} type="button" role="radio" aria-checked={s.scene === selected} tabIndex={s.scene === selected ? 0 : -1}
-            className="pad scene" data-on={s.saved} data-selected={s.scene === selected} data-outside={!inChain(s.scene)} data-playing={s.scene === playing}
+            className="pad scene" data-tip={`Scene ${s.scene}: select it to see and edit which patterns each track plays in it. Lit: saved. Dark: outside the scene chain.`} data-on={s.saved} data-selected={s.scene === selected} data-outside={!inChain(s.scene)} data-playing={s.scene === playing}
             aria-label={`Scene ${s.scene}: ${s.saved ? "saved" : "empty"}${inChain(s.scene) ? ", in the scene chain" : ""}${s.scene === playing ? ", playing" : ""}`}
             onClick={() => setSelected(s.scene)}
             onKeyDown={(e) => {
@@ -43,8 +43,8 @@ export function ScenesView({ scenes, onSceneChain, onScene, playing, onPlayScene
       </div>
       <div className="row" style={{ marginTop: "var(--space-md)" }}>
         <span className="hint">Scene chain (played in turn):</span>
-        <NumberField label="From scene" value={scenes.sceneChain.first} min={1} max={16} onCommit={(v) => onSceneChain(v, Math.max(v, scenes.sceneChain.last))} />
-        <NumberField label="To scene" value={scenes.sceneChain.last} min={1} max={16} onCommit={(v) => onSceneChain(Math.min(v, scenes.sceneChain.first), v)} />
+        <NumberField tip="The first scene of the scene chain: scenes From–To play in turn when Play is set to Scene chain." label="From scene" value={scenes.sceneChain.first} min={1} max={16} onCommit={(v) => onSceneChain(v, Math.max(v, scenes.sceneChain.last))} />
+        <NumberField tip="The last scene of the scene chain." label="To scene" value={scenes.sceneChain.last} min={1} max={16} onCommit={(v) => onSceneChain(Math.min(v, scenes.sceneChain.first), v)} />
       </div>
 
       {scene && (
@@ -59,8 +59,8 @@ export function ScenesView({ scenes, onSceneChain, onScene, playing, onPlayScene
                   <tr key={t} style={trackStyle(t)}>
                     <th scope="row"><span className="swatch" aria-hidden="true" />{t}</th>
                     <td>{chainText(c)}</td>
-                    <td><NumberField hideLabel label={`${t} from pattern`} value={c?.first ?? 1} min={1} max={8} onCommit={(v) => onScene(scene.scene, { [t]: { first: v, last: Math.max(v, c?.last ?? v) } }, `scene ${scene.scene} ${t}`)} /></td>
-                    <td><NumberField hideLabel label={`${t} to pattern`} value={c?.last ?? 1} min={1} max={8} onCommit={(v) => onScene(scene.scene, { [t]: { first: Math.min(v, c?.first ?? v), last: v } }, `scene ${scene.scene} ${t}`)} /></td>
+                    <td><NumberField tip="The first pattern this track plays in this scene." hideLabel label={`${t} from pattern`} value={c?.first ?? 1} min={1} max={8} onCommit={(v) => onScene(scene.scene, { [t]: { first: v, last: Math.max(v, c?.last ?? v) } }, `scene ${scene.scene} ${t}`)} /></td>
+                    <td><NumberField tip="The last pattern this track plays in this scene (From–To play in turn)." hideLabel label={`${t} to pattern`} value={c?.last ?? 1} min={1} max={8} onCommit={(v) => onScene(scene.scene, { [t]: { first: Math.min(v, c?.first ?? v), last: v } }, `scene ${scene.scene} ${t}`)} /></td>
                     <td>{chainText(scenes.currentChains[t])}</td>
                   </tr>
                 );
@@ -68,8 +68,8 @@ export function ScenesView({ scenes, onSceneChain, onScene, playing, onPlayScene
             </tbody>
           </table>
           <div className="row">
-            <button type="button" className="btn" onClick={() => onPlayScene(scene.scene)}>▶ Play scene {scene.scene}</button>
-            <button type="button" className="btn" onClick={() => onScene(scene.scene, scenes.currentChains, `stored the current chains in scene ${scene.scene}`)}>Store current chains in scene {scene.scene}</button>
+            <button type="button" className="btn" data-tip="Play this scene's pattern chains, looping." onClick={() => onPlayScene(scene.scene)}>▶ Play scene {scene.scene}</button>
+            <button type="button" className="btn" data-tip="Save what every track plays now (the Now playing column) into this scene, as on the device." onClick={() => onScene(scene.scene, scenes.currentChains, `stored the current chains in scene ${scene.scene}`)}>Store current chains in scene {scene.scene}</button>
           </div>
           <p className="hint">{scenes.note}.</p>
         </fieldset>

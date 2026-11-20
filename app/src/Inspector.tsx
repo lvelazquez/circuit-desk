@@ -33,17 +33,17 @@ export function Inspector(p: InspectorProps) {
       <fieldset>
         <legend>Length and rate</legend>
         <div className="row">
-          <NumberField label="First step" value={p.data.settings.firstStep} min={1} max={32} onCommit={(v) => p.onSettings({ firstStep: v })} />
-          <NumberField label="Last step" value={p.data.settings.lastStep} min={1} max={32} onCommit={(v) => p.onSettings({ lastStep: v })} />
+          <NumberField tip="The step the pattern starts on. Steps before it are skipped (shown dark)." label="First step" value={p.data.settings.firstStep} min={1} max={32} onCommit={(v) => p.onSettings({ firstStep: v })} />
+          <NumberField tip="The step the pattern ends on before it repeats; with First step, its length." label="Last step" value={p.data.settings.lastStep} min={1} max={32} onCommit={(v) => p.onSettings({ lastStep: v })} />
         </div>
         <div className="row">
           <label>Sync rate
-            <select value={p.data.settings.syncRate} onChange={(e) => p.onSettings({ syncRate: e.target.value as SyncRate })}>
+            <select data-tip="How long one step lasts: 1/16 is the default; T means triplet. Slower rates stretch the pattern." value={p.data.settings.syncRate} onChange={(e) => p.onSettings({ syncRate: e.target.value as SyncRate })}>
               {SYNC_RATES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </label>
           <label>Direction
-            <select value={p.data.settings.direction} onChange={(e) => p.onSettings({ direction: e.target.value as Direction })}>
+            <select data-tip="Play order: forward, reverse, ping-pong (alternates direction each time round) or random (a random step at every step)." value={p.data.settings.direction} onChange={(e) => p.onSettings({ direction: e.target.value as Direction })}>
               {DIRECTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
             </select>
           </label>
@@ -55,8 +55,8 @@ export function Inspector(p: InspectorProps) {
         <fieldset>
           <legend>Patterns played in turn</legend>
           <div className="row">
-            <NumberField label="From" value={chain.first} min={1} max={8} onCommit={(v) => p.onChain(v, Math.max(v, chain.last))} />
-            <NumberField label="To" value={chain.last} min={1} max={8} onCommit={(v) => p.onChain(Math.min(v, chain.first), v)} />
+            <NumberField tip="The first pattern of this track's chain: patterns From–To play one after another." label="From" value={chain.first} min={1} max={8} onCommit={(v) => p.onChain(v, Math.max(v, chain.last))} />
+            <NumberField tip="The last pattern of this track's chain." label="To" value={chain.last} min={1} max={8} onCommit={(v) => p.onChain(Math.min(v, chain.first), v)} />
           </div>
         </fieldset>
       ) : <p className="hint">Loading…</p>}
@@ -83,19 +83,19 @@ function NoteStep(p: InspectorProps & { step: number }) {
         <div className="note-row" key={`${n.note}-${i}`} role="group" aria-label={`Note ${i + 1}: ${noteName(n.note)}`}>
           <span>{noteName(n.note)}</span>
           {/* The MIDI pitch it sounds at (stored note + root), as the name beside it. */}
-          <NumberField hideLabel label={`Note ${i + 1} pitch, as MIDI note number`} value={n.note + root} min={root} max={127} onCommit={(v) => { const st = v - root; if (!notes.some((x, k) => k !== i && x.note === st)) change(i, { note: st }); }} />
-          <NumberField hideLabel label={`Note ${i + 1} velocity`} value={n.velocity} min={1} max={127} onCommit={(v) => change(i, { velocity: v })} />
-          <NumberField hideLabel label={`Note ${i + 1} gate, in sixths of a step`} value={n.gate} min={1} max={96} onCommit={(v) => change(i, { gate: v })} />
-          <NumberField hideLabel label={`Note ${i + 1} micro-step offset, in sixths`} value={n.micro} min={0} max={5} onCommit={(v) => change(i, { micro: v })} />
-          <button type="button" className="btn" aria-label={`Remove note ${i + 1}`} onClick={() => write(notes.filter((_, k) => k !== i), `removed ${noteName(n.note)}`)}>✕</button>
+          <NumberField tip="Pitch as a MIDI note number (60 = C4), as it sounds with the project's root." hideLabel label={`Note ${i + 1} pitch, as MIDI note number`} value={n.note + root} min={root} max={127} onCommit={(v) => { const st = v - root; if (!notes.some((x, k) => k !== i && x.note === st)) change(i, { note: st }); }} />
+          <NumberField tip="How hard the note plays, 1–127." hideLabel label={`Note ${i + 1} velocity`} value={n.velocity} min={1} max={127} onCommit={(v) => change(i, { velocity: v })} />
+          <NumberField tip="Length in sixths of a step: 6 = one step, up to 96 (16 steps)." hideLabel label={`Note ${i + 1} gate, in sixths of a step`} value={n.gate} min={1} max={96} onCommit={(v) => change(i, { gate: v })} />
+          <NumberField tip="Starts the note late by 0–5 sixths of a step, for feel." hideLabel label={`Note ${i + 1} micro-step offset, in sixths`} value={n.micro} min={0} max={5} onCommit={(v) => change(i, { micro: v })} />
+          <button type="button" className="btn" data-tip="Remove this note from the step." aria-label={`Remove note ${i + 1}`} onClick={() => write(notes.filter((_, k) => k !== i), `removed ${noteName(n.note)}`)}>✕</button>
         </div>
       ))}
       <div className="row">
-        <button type="button" className="btn" disabled={notes.length >= MAX_NOTES} onClick={() => write([...notes, { ...DEFAULT_NOTE, note: free }], `added ${noteName(free)}`)}>Add note</button>
-        <button type="button" className="btn" disabled={!notes.length} onClick={() => write([], `cleared step ${p.step}`)}>Clear step</button>
+        <button type="button" className="btn" data-tip="Add another note to this step (up to 6), starting from the current note." disabled={notes.length >= MAX_NOTES} onClick={() => write([...notes, { ...DEFAULT_NOTE, note: free }], `added ${noteName(free)}`)}>Add note</button>
+        <button type="button" className="btn" data-tip="Remove every note from this step." disabled={!notes.length} onClick={() => write([], `cleared step ${p.step}`)}>Clear step</button>
       </div>
       <div className="row">
-        <NumberField label="Probability (0–7, 7 = always)" value={probability} min={0} max={7} onCommit={(v) => write(notes, `probability ${v}`, v)} />
+        <NumberField tip="Chance the step plays each time round: 7 always, 6 = 87.5 %, down to 0 = 12.5 %. All the step's notes play or none do." label="Probability (0–7, 7 = always)" value={probability} min={0} max={7} onCommit={(v) => write(notes, `probability ${v}`, v)} />
       </div>
     </fieldset>
   );
@@ -110,18 +110,18 @@ function DrumStep(p: InspectorProps & { step: number }) {
     <fieldset>
       <legend>{p.track} step {p.step}: {hit ? "hit" : "empty"}</legend>
       <div className="row">
-        <NumberField label="Velocity (0 = none)" value={hit?.velocity ?? 0} min={0} max={127} onCommit={(v) => set({ velocity: v }, `velocity ${v}`)} />
+        <NumberField tip="How hard the hit plays, 1–127; 0 removes it." label="Velocity (0 = none)" value={hit?.velocity ?? 0} min={0} max={127} onCommit={(v) => set({ velocity: v }, `velocity ${v}`)} />
       </div>
       {hit && (
         <>
           <div className="row">
-            <NumberField label="Probability (0–7)" value={hit.probability} min={0} max={7} onCommit={(v) => set({ probability: v }, `probability ${v}`)} />
+            <NumberField tip="Chance the hit plays each time round: 7 always, down to 0 = 12.5 %." label="Probability (0–7)" value={hit.probability} min={0} max={7} onCommit={(v) => set({ probability: v }, `probability ${v}`)} />
           </div>
           <fieldset>
-            <legend>Micro-steps that sound</legend>
+            <legend data-tip="The hit plays on each ticked sixth of the step: tick several for rolls and flams.">Micro-steps that sound</legend>
             <div className="row">
               {[1, 2, 3, 4, 5, 6].map((k) => (
-                <label key={k}>
+                <label key={k} data-tip={`Sixth ${k} of the step: tick to add a hit there (at least one stays on).`}>
                   <input type="checkbox" checked={micro.has(k)} disabled={micro.size === 1 && micro.has(k)}
                     onChange={() => { const next = new Set(micro); if (next.has(k)) next.delete(k); else next.add(k); set({ microSteps: [...next].sort() }, "micro-steps"); }} />
                   {k}

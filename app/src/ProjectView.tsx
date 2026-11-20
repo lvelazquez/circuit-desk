@@ -34,12 +34,12 @@ export function ProjectView(p: ProjectProps) {
       <fieldset className="fx-panel">
         <legend>Project</legend>
         <label>Name
-          <input type="text" maxLength={32} value={name} pattern="[\x20-\x7e]*" onChange={(e) => setName(e.target.value)} onBlur={commitName}
+          <input type="text" maxLength={32} data-tip="The name stored in the project: up to 32 plain characters. Enter saves it; Esc cancels." value={name} pattern="[\x20-\x7e]*" onChange={(e) => setName(e.target.value)} onBlur={commitName}
             onKeyDown={(e) => { if (e.key === "Enter") commitName(); if (e.key === "Escape") setName(s.name); }} />
         </label>
         <div className="row">
-          <NumberField label="Tempo (BPM)" value={s.tempo} min={40} max={240} onCommit={(v) => p.onEdit({ tempo: v }, `tempo ${v}`)} />
-          <NumberField label="Swing (%)" value={s.swing} min={20} max={80} onCommit={(v) => p.onEdit({ swing: v }, `swing ${v}`)} />
+          <NumberField tip="Beats per minute, 40–240." label="Tempo (BPM)" value={s.tempo} min={40} max={240} onCommit={(v) => p.onEdit({ tempo: v }, `tempo ${v}`)} />
+          <NumberField tip="Delays every second 1/16 step: 50 is straight, higher swings, lower pushes early (20–80)." label="Swing (%)" value={s.swing} min={20} max={80} onCommit={(v) => p.onEdit({ swing: v }, `swing ${v}`)} />
         </div>
       </fieldset>
 
@@ -47,12 +47,12 @@ export function ProjectView(p: ProjectProps) {
         <legend>Scale</legend>
         <div className="row">
           <label>Root
-            <select value={s.scale.root} onChange={(e) => p.onEdit({ scale: { root: Number(e.target.value) } }, `root ${NOTE_NAMES[Number(e.target.value)]}`)}>
+            <select data-tip="The key. Notes are stored relative to it, so changing it transposes every note track, as on the device." value={s.scale.root} onChange={(e) => p.onEdit({ scale: { root: Number(e.target.value) } }, `root ${NOTE_NAMES[Number(e.target.value)]}`)}>
               {NOTE_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
             </select>
           </label>
           <label>Scale
-            <select value={s.scale.type} onChange={(e) => p.onEdit({ scale: { type: Number(e.target.value) } }, `scale ${SCALE_NAMES[Number(e.target.value)]}`)}>
+            <select data-tip="The scale the keyboard pads lay out. Notes already in patterns keep their pitch here." value={s.scale.type} onChange={(e) => p.onEdit({ scale: { type: Number(e.target.value) } }, `scale ${SCALE_NAMES[Number(e.target.value)]}`)}>
               {SCALE_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
             </select>
           </label>
@@ -71,16 +71,16 @@ export function ProjectView(p: ProjectProps) {
             <fieldset key={n} className="fx-panel" style={trackStyle(n)}>
               <legend>{n}</legend>
               <label>Sample
-                <select value={k.sample} onChange={(e) => drum(d, "sample", Number(e.target.value), `${n} sample ${Number(e.target.value) + 1}`)}>
+                <select data-tip="The pack sample this drum plays (a step can flip to another)." value={k.sample} onChange={(e) => drum(d, "sample", Number(e.target.value), `${n} sample ${Number(e.target.value) + 1}`)}>
                   {(samples.length ? samples : Array.from({ length: 64 }, (_, i) => ({ index: i, name: "" }))).map((x) => (
                     <option key={x.index} value={x.index}>{x.index + 1}{x.name ? ` · ${x.name}` : ""}</option>
                   ))}
                 </select>
               </label>
-              <Slider label="Pitch" value={k.pitch} text={centreText} onCommit={(v) => drum(d, "pitch", v, `${n} pitch ${centreText(v)}`)} />
-              <Slider label="Decay" value={k.decay} onCommit={(v) => drum(d, "decay", v, `${n} decay ${v}`)} />
-              <Slider label="Distortion" value={k.distortion} onCommit={(v) => drum(d, "distortion", v, `${n} distortion ${v}`)} />
-              <Slider label="EQ" value={k.eq} text={centreText} onCommit={(v) => drum(d, "eq", v, `${n} EQ ${centreText(v)}`)} />
+              <Slider tip="Tunes the drum sample up or down; 0 is as recorded." label="Pitch" value={k.pitch} text={centreText} onCommit={(v) => drum(d, "pitch", v, `${n} pitch ${centreText(v)}`)} />
+              <Slider tip="How long the drum sounds before it fades." label="Decay" value={k.decay} onCommit={(v) => drum(d, "decay", v, `${n} decay ${v}`)} />
+              <Slider tip="Drive on this drum." label="Distortion" value={k.distortion} onCommit={(v) => drum(d, "distortion", v, `${n} distortion ${v}`)} />
+              <Slider tip="Tilt EQ: below 0 darker, above 0 brighter." label="EQ" value={k.eq} text={centreText} onCommit={(v) => drum(d, "eq", v, `${n} EQ ${centreText(v)}`)} />
             </fieldset>
           );
         })}

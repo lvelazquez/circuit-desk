@@ -17,7 +17,7 @@ export function Library({ items, current, onOpen }: { items: readonly Listing[];
     <nav className="panel library" aria-label="Projects">
       <h2 id="library-title">Library</h2>
       <label className="visually-hidden" htmlFor="library-search">Search projects</label>
-      <input id="library-search" type="search" placeholder="Search projects" value={query} onChange={(e) => setQuery(e.target.value)} />
+      <input id="library-search" type="search" placeholder="Search projects" value={query} onChange={(e) => setQuery(e.target.value)} data-tip="Filter the library by project or pack name." />
       {groups.length === 0 && <p className="hint">No projects. Use File › Open Project.</p>}
       {groups.map(([pack, list]) => (
         <section key={pack} aria-label={pack}>
@@ -25,7 +25,7 @@ export function Library({ items, current, onOpen }: { items: readonly Listing[];
           <ul>
             {list.map((it) => (
               <li key={it.path}>
-                <button type="button" aria-current={it.path === current} onClick={() => onOpen(it.path)} title={it.file}>{it.name || it.file}</button>
+                <button type="button" aria-current={it.path === current} onClick={() => onOpen(it.path)} data-tip={`Open ${it.file}. Edits stay in the app (with undo) until Save a copy; the file itself is never changed.`}>{it.name || it.file}</button>
               </li>
             ))}
           </ul>
