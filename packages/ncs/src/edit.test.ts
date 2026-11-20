@@ -3,6 +3,7 @@ import * as L from "./layout.ts";
 import { changedRanges, writeChain, writeDrumPattern, writeNotePattern, writeScene } from "./edit.ts";
 import { openProject, readChains, readDrumPattern, readNotePattern, readScenes, readTrailer } from "./project.ts";
 import { blankProject, noisyProject, withModTrailer } from "./testing.ts";
+import * as N from "./index.ts";
 
 describe("edits", () => {
   it("writes one note and changes only that step's bytes", () => {
@@ -63,5 +64,40 @@ describe("edits", () => {
     const stale = openProject(staleBytes);
     const after = writeNotePattern(stale, 2, 0, m);
     expect(readTrailer(after).extraLanes?.storedSum).toBe(readTrailer(stale).extraLanes?.storedSum);
+  });
+});
+
+describe("project settings", () => {
+  it("reads and writes scale, tempo, swing and name, changing only their bytes", () => {
+    const p = N.openProject(blankProject());
+    const q = N.writeSettings(p, { name: "Night Bus", tempo: 128, swing: 58, scale: { root: 2, type: 1 } });
+    expect(N.readSettings(q)).toMatchObject({ name: "Night Bus", tempo: 128, swing: 58, scale: { root: 2, type: 1 } });
+    const fields = N.changedRanges(p.bytes, q.bytes).map((r) => r.field);
+    expect(new Set(fields)).toEqual(new Set(["header.name", "tempo", "swing", "scaleRoot", "scaleType"]));
+  });
+
+  it("writes sound settings into the project block and drum records", () => {
+    const p = N.openProject(blankProject());
+    const q = N.writeSettings(p, { sound: { reverb: { type: 3, sends: [undefined, 90] }, levels: [100], drums: [undefined, { sample: 12, pan: 30 }], sidechains: [{ source: 1, depth: 80 }] } });
+    const s = N.readSound(q);
+    expect(s.reverb.type).toBe(3);
+    expect(s.reverb.sends[1]).toBe(90);
+    expect(s.levels[0]).toBe(100);
+    expect(s.drums[1]).toMatchObject({ sample: 12, pan: 30 });
+    expect(s.sidechains[0]).toMatchObject({ source: 1, depth: 80 });
+    expect(N.changedRanges(p.bytes, q.bytes).every((r) => r.field === "projectParams" || r.field === "drumBlock")).toBe(true);
+  });
+
+  it("rejects values the device cannot store", () => {
+    const p = N.openProject(blankProject());
+    expect(() => N.writeSettings(p, { scale: { type: 16 } })).toThrow(/scale type/);
+    expect(() => N.writeSettings(p, { sound: { reverb: { type: 6 } } })).toThrow(/reverb type/);
+    expect(() => N.writeSettings(p, { name: "é" })).toThrow(/name/);
+  });
+
+  it("lays out scale degrees from the root", () => {
+    expect([0, 1, 2, 7].map((d) => N.scaleNote({ root: 0, type: 1 }, 60, d))).toEqual([60, 62, 64, 72]);
+    expect(N.inScale({ root: 2, type: 1 }, 62 + 4)).toBe(true);
+    expect(N.inScale({ root: 2, type: 1 }, 62 + 3)).toBe(false);
   });
 });

@@ -213,6 +213,18 @@ Illegal input is flagged in the GUI and returned as MCP validation errors.
   - Reverse, ping-pong (alternates each play, end steps repeat: inferred from the per-track lap counter, NOTAS:2057) and swing (pairs of 1/16 steps; curve not measured) go into files and playback.
   - Step probability ((p + 1) / 8, one roll per step, NOTAS:2042/2359) and random direction are rolled again on each loop pass by the scheduler. Files keep every note and write random patterns forward.
   - Direction order 0–3 = Forward, Reverse, Ping-pong, Random, from the Circuit Tracks User Guide v2 pads 29–32.
+- **Scale and project settings (2026-11-20):** `packages/ncs/src/settings.ts`.
+  - Scale type is loose-settings byte +17 and the root is +16 (`partial`).
+  - **Stored step notes are relative to the root.** Read with the root at C, the card's synth and MIDI notes fit their scale 98.5 % and 98.9 % of the time; read from the stored root, 87.7 %. That matches NOTAS:1828.
+  - So arrange transposes every note track by the root. That changes exports and playback for the 28 card projects whose root isn't C. **To confirm on a device:** play a root ≠ C project and compare its MIDI out.
+  - Bytes +18 to +21 are still unknown.
+- **Editable now:** name, tempo, swing, scale, reverb, delay, sends, FX bypass, sidechains, levels, pans and drum sounds (`setSettings`, MCP `set_settings`), and pattern direction.
+  - These fields are `partial`, and editing them departs from the registry rule "editors may only change `verified` fields".
+  - Decided by the owner on 2026-11-20 ("close the editing gaps"): edits still only reach copies, and each change reports its status.
+  - Promotion to `verified` comes with the card write-back device check.
+- **App:** a Mixer view (strips with level, pan and sends; mute and solo during playback only; reverb, delay and sidechains) and a Project view (name, tempo, swing, scale, drum sounds).
+  - The keyboard pads follow the scale as on the device; Chromatic is a piano layout.
+  - Note names show sounding pitch (stored note + root).
 
 ## Sound engine options and the Ableton link (effort estimates)
 | Tier | What | Fidelity | Effort [estimate] | Risk |

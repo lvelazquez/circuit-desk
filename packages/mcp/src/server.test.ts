@@ -64,7 +64,7 @@ describe("circuit-desk MCP server", () => {
 
     const pat = (await call("get_pattern", { project: "p1", track: "Synth 1", pattern: 2 })).json as { steps: unknown[]; settings: unknown };
     expect(pat.steps).toEqual([{ step: 1, probability: 7, notes: [{ note: 60, velocity: 100, gate: 6, micro: 0 }, { note: 64, velocity: 90, gate: 12, micro: 3 }] }]);
-    expect(pat.settings).toEqual({ firstStep: 1, lastStep: 16, syncRate: "1/16", direction: 0 });
+    expect(pat.settings).toEqual({ firstStep: 1, lastStep: 16, syncRate: "1/16", direction: "forward" });
 
     await call("set_drum_steps", { project: "p1", track: "Drum 1", pattern: 1, steps: [{ step: 5, velocity: 110, microSteps: [1, 4] }] });
     expect((await call("get_pattern", { project: "p1", track: "Drum 1", pattern: 1 })).json).toMatchObject({ steps: [{ step: 5, velocity: 110, microSteps: [1, 4] }] });
@@ -129,5 +129,24 @@ describe("circuit-desk MCP server", () => {
     const bad = await call("set_automation", { project: "p1", track: "Drum 2", pattern: 1, lane: 9, points: [{ step: 1, value: 3 }] });
     expect(bad.error).toBe(true);
     expect(bad.text).toMatch(/lane must be 1–8/);
+  });
+
+  it("reads and sets project settings and pattern direction", async () => {
+    const opened = (await call("open_project", { path: file })).json as { id: string };
+    const id = opened.id;
+    const before = (await call("get_settings", { project: id })).json as { scale: { root: number; type: number }; sound: { levels: number[] } };
+    expect(before.scale).toEqual({ root: 0, type: 0 });
+    const r = await call("set_settings", { project: id, tempo: 126, scale: { root: 9 }, levels: [null, 90], drums: [null, null, { pan: 20 }] });
+    expect(r.error).toBe(false);
+    const after = (await call("get_settings", { project: id })).json as { tempo: number; scale: { root: number; type: number }; sound: { levels: number[]; drums: { pan: number }[] } };
+    expect(after.tempo).toBe(126);
+    expect(after.scale).toEqual({ root: 9, type: 0 });
+    expect(after.sound.levels[1]).toBe(90);
+    expect(after.sound.levels[0]).toBe(before.sound.levels[0]);
+    expect(after.sound.drums[2]!.pan).toBe(20);
+    expect((await call("set_settings", { project: id, scale: { type: 16 } })).error).toBe(true);
+    await call("set_pattern_settings", { project: id, track: "Synth 1", pattern: 1, direction: "ping-pong" });
+    const pat = (await call("get_pattern", { project: id, track: "Synth 1", pattern: 1 })).json as { settings: { direction: string } };
+    expect(pat.settings.direction).toBe("ping-pong");
   });
 });

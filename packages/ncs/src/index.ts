@@ -5,3 +5,4 @@ export * from "./registry.ts";
 export * from "./edit.ts";
 export * from "./lanes.ts";
 export * from "./sound.ts";
+export * from "./settings.ts";

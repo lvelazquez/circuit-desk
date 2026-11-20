@@ -4,7 +4,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { ProjectService, ServiceError, SocketClient, SYNC_RATES, TRACKS, UnsafeWriteError, type ServiceMethod } from "@circuit-desk/core-service";
+import { DIRECTIONS, ProjectService, ServiceError, SocketClient, SYNC_RATES, TRACKS, UnsafeWriteError, type ServiceMethod } from "@circuit-desk/core-service";
 import { DRUM_TRACKS, NOTE_TRACKS } from "@circuit-desk/ncs";
 
 export const VERSION = "0.1.0";
@@ -77,7 +77,8 @@ export function createServer(service = new ProjectService(), opts: { socket?: st
       "Reads, edits and exports Novation Circuit Tracks projects (.ncs).",
       "Open a project first; edits stay in memory (with undo) until save_copy, which writes a new file to the copies folder. Nothing here writes to the SD card or to the original file.",
       "When the Circuit Desk app is running, tools work on the projects open in it and edits show there at once; otherwise they work on the files (see the connection tool).",
-      "Numbers are 1-based as on the device. Only fields confirmed on a device can be edited; tempo, swing, mixer, FX and synth patches are read-only for now.",
+      "Numbers are 1-based as on the device. Notes, steps, scenes and chains are confirmed on a device; project settings (tempo, swing, scale, mixer, FX, drum sounds) are editable but read from strong evidence short of a device check, so each change reports its status. Synth patches are read-only for now.",
+      "Stored notes are relative to the project's scale root: the root transposes every note track as it plays.",
     ].join(" "),
   });
 
@@ -169,13 +170,53 @@ export function createServer(service = new ProjectService(), opts: { socket?: st
   }, ({ project: id, track: t, pattern: p, lane, points, clear }) => run(async () => changes(await svc.setAutomation(id, t, p, lane, points, { clear: clear ?? false }))));
 
   server.registerTool("set_pattern_settings", {
-    title: "Set pattern length and rate",
-    description: "Sets a pattern's first and last step (its length) and its sync rate (the length of one step).",
-    inputSchema: { project, track, pattern, firstStep: step.optional(), lastStep: step.optional(), syncRate: z.enum(SYNC_RATES).optional().describe("1/16 is the default; T = triplet") },
+    title: "Set pattern length, rate and direction",
+    description: "Sets a pattern's first and last step (its length), its sync rate (the length of one step) and its play direction.",
+    inputSchema: {
+      project, track, pattern, firstStep: step.optional(), lastStep: step.optional(), syncRate: z.enum(SYNC_RATES).optional().describe("1/16 is the default; T = triplet"),
+      direction: z.enum(DIRECTIONS).optional().describe("ping-pong alternates direction on each play; random picks a step at random for every step"),
+    },
     annotations: EDIT,
   }, ({ project: id, track: t, pattern: p, ...s }) => run(async () => changes(await svc.setPatternSettings(id, t, p, {
     ...(s.firstStep !== undefined ? { firstStep: s.firstStep } : {}), ...(s.lastStep !== undefined ? { lastStep: s.lastStep } : {}), ...(s.syncRate !== undefined ? { syncRate: s.syncRate } : {}),
+    ...(s.direction !== undefined ? { direction: s.direction } : {}),
   }))));
+
+  server.registerTool("get_settings", {
+    title: "Get project settings",
+    description: "The project's name, tempo, swing, scale (root 0–11 with C = 0, type 0–15 with names), and sound settings: reverb, delay, the 8 reverb and delay sends (Synth 1, Synth 2, Drum 1–4, MIDI 1, MIDI 2), FX bypass, the sidechains, levels and pans of Synth 1, Synth 2, MIDI 1, MIDI 2, and the four drums (sample 0–63, level, pitch, decay, distortion, EQ, pan). Raw values 0–127 unless named otherwise; 64 is the centre of pans, pitch and EQ.",
+    inputSchema: { project },
+    annotations: READ,
+  }, ({ project: id }) => run(() => svc.settings(id)));
+
+  const v127 = z.number().int().min(0).max(127);
+  const list = (n: number) => z.array(v127.nullable()).max(n).optional();
+  server.registerTool("set_settings", {
+    title: "Set project settings",
+    description: "Changes any subset of the project settings (see get_settings). In lists, null leaves an entry as it is. The scale root transposes every note track as it plays. Returns the byte ranges that changed, each with how far its reading is trusted.",
+    inputSchema: {
+      project,
+      name: z.string().max(32).optional(),
+      tempo: z.number().int().min(40).max(240).optional(),
+      swing: z.number().int().min(20).max(80).optional().describe("Percent; 50 = straight"),
+      scale: z.object({ root: z.number().int().min(0).max(11).optional(), type: z.number().int().min(0).max(15).optional() }).optional(),
+      reverb: z.object({ type: z.number().int().min(0).max(5).optional(), decay: v127.optional(), damping: v127.optional(), sends: list(8) }).optional(),
+      delay: z.object({ time: v127.optional(), sync: z.number().int().min(0).max(35).optional(), feedback: v127.optional(), width: v127.optional(), ratio: z.number().int().min(0).max(12).optional(), slew: v127.optional(), sends: list(8) }).optional(),
+      fxBypass: z.boolean().optional(),
+      levels: list(4).describe("Synth 1, Synth 2, MIDI 1, MIDI 2"),
+      pans: list(4).describe("Synth 1, Synth 2, MIDI 1, MIDI 2; 64 = centre"),
+      sidechains: z.array(z.object({ source: z.number().int().min(0).max(4).optional().describe("1–4 = Drum 1–4 as 0–3; 4 = off"), attack: v127.optional(), hold: v127.optional(), decay: v127.optional(), depth: v127.optional() }).nullable()).max(4).optional(),
+      drums: z.array(z.object({ sample: z.number().int().min(0).max(63).optional(), level: v127.optional(), pitch: v127.optional(), decay: v127.optional(), distortion: v127.optional(), eq: v127.optional(), pan: v127.optional() }).nullable()).max(4).optional(),
+    },
+    annotations: EDIT,
+  }, ({ project: id, name, tempo, swing, scale, ...sound }) => run(async () => {
+    // Drop absent keys (the service takes only what is given); nulls inside lists mean "leave as is".
+    const given = <T extends object>(o: T): T => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+    return changes(await svc.setSettings(id, given({ name, tempo, swing, scale: scale && given(scale), sound: given({
+      ...sound, reverb: sound.reverb && given(sound.reverb), delay: sound.delay && given(sound.delay),
+      sidechains: sound.sidechains?.map((c) => c && given(c)), drums: sound.drums?.map((d) => d && given(d)),
+    }) })));
+  }));
 
   server.registerTool("get_scenes", {
     title: "Get scenes and chains", description: "The scene chain, the current pattern chain of each track, and the 16 scenes with their chains.", inputSchema: { project }, annotations: READ,

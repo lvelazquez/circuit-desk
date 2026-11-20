@@ -275,4 +275,18 @@ describe("automation lanes", () => {
     const a = arrange(N.openProject(b), { source: "current" });
     expect(a.tracks[4]!.auto.map((e) => [e.tick, e.value])).toEqual([[0, 10], [16 * 120, 120]]);
   });
+
+  it("transposes note tracks by the scale root, as the stored notes are relative to it", () => {
+    const b = blankProject();
+    putNote(b, 0, 0, 0, 0, 60, 6, 0, 100);
+    putNote(b, 2, 0, 0, 0, 48, 6, 0, 100);
+    putHit(b, 0, 0, 0, 100);
+    b[N.SCALE_ROOT_AT] = 2;
+    const a = arrange(N.openProject(b), { pattern: 1 });
+    expect(a.tracks[0]!.notes[0]!.pitch).toBe(62);
+    expect(a.tracks[2]!.notes[0]!.pitch).toBe(50);
+    expect(a.tracks[4]!.notes[0]!.pitch).toBe(60); // drums keep their notes
+    expect(a.tracks[0]!.patterns[0]!.notes[0]!.pitch).toBe(62);
+    expect(a.warnings.join("\n")).toMatch(/root D transposes/);
+  });
 });

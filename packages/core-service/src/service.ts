@@ -19,6 +19,9 @@ export type DrumTrackName = (typeof N.DRUM_TRACKS)[number];
 /** Step length by sync-rate index, at 480 ticks a quarter note. */
 export const SYNC_RATES = ["1/32T", "1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4"] as const;
 export type SyncRate = (typeof SYNC_RATES)[number];
+/** Play directions, by the stored value (Circuit Tracks User Guide v2, Pattern Settings pads 29–32). */
+export const DIRECTIONS = ["forward", "reverse", "ping-pong", "random"] as const;
+export type Direction = (typeof DIRECTIONS)[number];
 
 const UNDO_LIMIT = 200;
 
@@ -27,7 +30,7 @@ export interface ProjectListing { path: string; pack: string; file: string; name
 export interface NoteOut { note: number; velocity: number; gate: number; micro: number }
 export interface NoteStepOut { step: number; probability: number; notes: NoteOut[] }
 export interface DrumStepOut { step: number; velocity: number; probability: number; sampleFlip: number | null; microSteps: number[] }
-export interface PatternSettingsOut { firstStep: number; lastStep: number; syncRate: SyncRate; direction: number }
+export interface PatternSettingsOut { firstStep: number; lastStep: number; syncRate: SyncRate; direction: Direction }
 
 export interface NoteStepIn { step: number; notes: NoteOut[]; probability?: number }
 /** One automation point: step 1–32, sixth of the step 1–6 (default 1), value 0–127 or null to remove. */
@@ -60,7 +63,7 @@ function one(what: string, v: number, max: number): number {
 }
 
 const settingsOut = (s: N.PatternSettings): PatternSettingsOut => ({
-  firstStep: s.firstStep + 1, lastStep: s.lastStep + 1, syncRate: SYNC_RATES[s.syncRate & 7] ?? "1/16", direction: s.direction,
+  firstStep: s.firstStep + 1, lastStep: s.lastStep + 1, syncRate: SYNC_RATES[s.syncRate & 7] ?? "1/16", direction: DIRECTIONS[s.direction] ?? "forward",
 });
 const maskToList = (m: number): number[] => [0, 1, 2, 3, 4, 5].filter((k) => (m >> k) & 1).map((k) => k + 1);
 
@@ -241,13 +244,18 @@ export class ProjectService {
     });
   }
 
-  setPatternSettings(id: string, track: TrackName, pattern: number, s: { firstStep?: number; lastStep?: number; syncRate?: SyncRate }): N.ChangedRange[] {
+  setPatternSettings(id: string, track: TrackName, pattern: number, s: { firstStep?: number; lastStep?: number; syncRate?: SyncRate; direction?: Direction }): N.ChangedRange[] {
     const t = trackIndex(track), i = one("pattern", pattern, 8);
     return this.edit(id, (p) => {
       const m = t < 4 ? N.readNotePattern(p, t, i) : N.readDrumPattern(p, t - 4, i);
       if (s.firstStep !== undefined) m.settings.firstStep = one("first step", s.firstStep, 32);
       if (s.lastStep !== undefined) m.settings.lastStep = one("last step", s.lastStep, 32);
       if (s.syncRate !== undefined) m.settings.syncRate = SYNC_RATES.indexOf(s.syncRate);
+      if (s.direction !== undefined) {
+        const d = DIRECTIONS.indexOf(s.direction);
+        if (d < 0) throw new ServiceError(`direction is one of ${DIRECTIONS.join(", ")}`);
+        m.settings.direction = d;
+      }
       if (m.settings.firstStep > m.settings.lastStep) throw new ServiceError(`first step ${m.settings.firstStep + 1} is after last step ${m.settings.lastStep + 1}`);
       return t < 4 ? N.writeNotePattern(p, t, i, m as N.NotePattern) : N.writeDrumPattern(p, t - 4, i, m as N.DrumPattern);
     });
@@ -390,6 +398,28 @@ export class ProjectService {
    */
   soundSettings(id: string): N.SoundSettings {
     return N.readSound(this.get(id).project);
+  }
+
+  /**
+   * Name, tempo, swing, scale and sound settings, with how far each reading is trusted. The scale
+   * root transposes every note track as it plays (stored notes are relative to it).
+   */
+  settings(id: string) {
+    const v = N.readSettings(this.get(id).project);
+    return {
+      ...v,
+      scaleNames: N.SCALE_NAMES, noteNames: N.NOTE_NAMES,
+      status: {
+        tempo: "partial: reads as BPM", swing: "partial: percent, 50 = straight",
+        scale: "partial: from the card's notes and the firmware notes; the root transposes playback",
+        sound: "partial: firmware parameter descriptors; not yet loaded on a device after an edit",
+      },
+    };
+  }
+
+  /** Changes project settings (any subset). Fields are `partial` (see settings): edits go to copies only. */
+  setSettings(id: string, e: N.SettingsEdit): N.ChangedRange[] {
+    return this.edit(id, (p) => N.writeSettings(p, e));
   }
 
   synthPatches(id: string): { synth1: number[]; synth2: number[] } {

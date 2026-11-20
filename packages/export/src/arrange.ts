@@ -233,12 +233,12 @@ export function patternLength(s: N.PatternSettings): number {
  * The notes of one note-track pattern, from its first step, relative to tick 0. A stored note
  * number above 127 cannot be sent as MIDI and is left out (one factory project has a 128).
  */
-export function notePatternNotes(p: N.NotePattern): MidiNote[] {
+export function notePatternNotes(p: N.NotePattern, transpose = 0): MidiNote[] {
   const step = stepTicks(p.settings), { first, last } = span(p.settings), out: MidiNote[] = [];
   for (let s = first; s <= last; s++) {
     for (const u of p.steps[s]?.units ?? []) {
-      if (!u.on || u.note > 127) continue;
-      out.push({ tick: (s - first) * step + Math.round((u.micro * step) / 6), dur: Math.max(1, Math.round((u.gate * step) / 6)), pitch: u.note, velocity: Math.max(1, u.velocity & 127) });
+      if (!u.on || u.note + transpose > 127) continue;
+      out.push({ tick: (s - first) * step + Math.round((u.micro * step) / 6), dur: Math.max(1, Math.round((u.gate * step) / 6)), pitch: u.note + transpose, velocity: Math.max(1, u.velocity & 127) });
     }
   }
   return out;
@@ -270,7 +270,7 @@ type LaneSink = (lane: number, value: number) => { cc: number } | Omit<AutoEvent
  * A pattern step by step, from its first step: notes with their step's probability, and every
  * stored lane point (not yet thinned to changes; placeSteps does that in play order).
  */
-export function patternSteps(p: N.NotePattern | N.DrumPattern, drumPitch: number | null, sink: LaneSink): StepContent[] {
+export function patternSteps(p: N.NotePattern | N.DrumPattern, drumPitch: number | null, sink: LaneSink, transpose = 0): StepContent[] {
   const step = stepTicks(p.settings), { first, last } = span(p.settings), out: StepContent[] = [];
   for (let s = first; s <= last; s++) {
     const c: StepContent = { notes: [], ccs: [], auto: [] };
@@ -278,9 +278,9 @@ export function patternSteps(p: N.NotePattern | N.DrumPattern, drumPitch: number
       const st = (p as N.NotePattern).steps[s];
       const prob = (st?.probability ?? 7) & 7;
       for (const u of st?.units ?? []) {
-        if (!u.on || u.note > 127) continue;
+        if (!u.on || u.note + transpose > 127) continue;
         c.notes.push({
-          tick: Math.round((u.micro * step) / 6), dur: Math.max(1, Math.round((u.gate * step) / 6)), pitch: u.note, velocity: Math.max(1, u.velocity & 127),
+          tick: Math.round((u.micro * step) / 6), dur: Math.max(1, Math.round((u.gate * step) / 6)), pitch: u.note + transpose, velocity: Math.max(1, u.velocity & 127),
           ...(prob < 7 ? { prob } : {}),
         });
       }
@@ -353,16 +353,19 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
   const patterns = TRACK_NAMES.map((_, t) =>
     Array.from({ length: N.PATTERNS_PER_TRACK }, (_, i) => (t < 4 ? N.readNotePattern(project, t, i) : N.readDrumPattern(project, t - 4, i))),
   );
+  // Step notes are stored relative to the scale root; the root transposes them as they play (settings.ts).
+  const root = N.readScale(project).root;
   const patternNotes = patterns.map((list, t) =>
-    list.map((p) => (t < 4 ? notePatternNotes(p as N.NotePattern) : drumPatternNotes(p as N.DrumPattern, drumNotes[t - 4] ?? 60))),
+    list.map((p) => (t < 4 ? notePatternNotes(p as N.NotePattern, root) : drumPatternNotes(p as N.DrumPattern, drumNotes[t - 4] ?? 60))),
   );
 
   const outOfRange: string[] = [];
   patterns.slice(0, 4).forEach((list, t) => list.forEach((p, i) => {
-    const n = (p as N.NotePattern).steps.reduce((k, st) => k + st.units.filter((u) => u.on && u.note > 127).length, 0);
+    const n = (p as N.NotePattern).steps.reduce((k, st) => k + st.units.filter((u) => u.on && u.note + root > 127).length, 0);
     if (n) outOfRange.push(`${TRACK_NAMES[t]} pattern ${i + 1} (${n})`);
   }));
-  if (outOfRange.length) warnings.push(`left out notes stored above 127: ${outOfRange.join(", ")}`);
+  if (outOfRange.length) warnings.push(`left out notes above 127${root ? ` after the root (${N.NOTE_NAMES[root]}) transposes them` : ""}: ${outOfRange.join(", ")}`);
+  if (root) warnings.push(`the scale root ${N.NOTE_NAMES[root]} transposes every note track up ${root} semitone${root > 1 ? "s" : ""} (stored notes are relative to the root; not yet confirmed on a device)`);
 
   const swing = opts.swing === false ? 50 : header.swing;
   const swingTicks = swingStepTicks(project.bytes[N.SWING_SYNC_AT] ?? 3);
@@ -387,7 +390,7 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
     if (!what) return null;
     const cc = withCcs ? deviceCc(t, what.target, what.index, channels) : undefined;
     return { ...what, ...(cc ? { cc } : {}) };
-  })));
+  }, t < 4 ? root : 0)));
   const randoms = new Set<string>(), pingPongs = new Set<string>();
   let anyProb = false;
   const laps = TRACK_NAMES.map(() => 0);
