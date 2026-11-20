@@ -6,9 +6,11 @@
 //   Card evidence only: over 152 projects, each chain slot points at used patterns of that track
 //   most often (docs/card-survey.md).
 // - A scene lasts as long as its longest track chain; shorter chains loop inside it.
-// - Patterns play forward from their first step to their last; other directions are drawn forward.
-// - Probability and swing are ignored: every note plays, straight.
+// - Directions, probability and swing follow steps.ts (evidence and assumptions there). Files
+//   (MIDI, Live) get swing, reverse and ping-pong; every note plays and random-direction patterns
+//   are written forward. Playback rolls probability and random steps on each pass (`realise`).
 import * as N from "@circuit-desk/ncs";
+import { placeSteps, removeOverlaps, stepOrder, swingNote, swingStepTicks, swingTick, type RandomPlay, type StepContent } from "./steps.ts";
 
 export const PPQ = 480;
 
@@ -25,6 +27,12 @@ export interface MidiNote {
   velocity: number;
   /** Drums: the pack sample (0–63) this hit flips to, when the step has a sample flip. */
   sample?: number;
+  /** The step's probability, 0–6 (plays with (p + 1) / 8); absent = always. */
+  prob?: number;
+  /** With `prob`: the unswung tick where the note's step starts, which its roll is shared by. */
+  step?: number;
+  /** A forward stand-in for a random-direction play: written to files, replaced at playback. */
+  rnd?: true;
 }
 
 /** One pattern as it is played once: its position, its length, and its notes from tick 0. */
@@ -43,6 +51,8 @@ export interface MidiCc {
   tick: number;
   cc: number;
   value: number;
+  /** A forward stand-in for a random-direction play (see MidiNote). */
+  rnd?: true;
 }
 
 /** What an automation lane drives (packages/ncs lanes.ts). */
@@ -57,6 +67,8 @@ export interface AutoEvent {
   value: number;
   /** Present for the Circuit target where the Programmer's Reference documents a CC. Channel 0-based. */
   cc?: { channel: number; cc: number };
+  /** A forward stand-in for a random-direction play (see MidiNote). */
+  rnd?: true;
 }
 
 export interface PatternClip {
@@ -81,6 +93,8 @@ export interface ArrangedTrack {
   ccs: MidiCc[];
   /** Synth and drum lanes, and every track's level, pan and send lanes (MIDI 1/2 knob lanes are in `ccs`). */
   auto: AutoEvent[];
+  /** Random-direction plays, with the steps of each pattern they use, for playback to roll. */
+  random?: { plays: RandomPlay[]; steps: Record<number, StepContent[]> };
 }
 
 export interface ArrangedScene {
@@ -94,6 +108,9 @@ export interface Arrangement {
   name: string;
   bpm: number;
   ppq: number;
+  /** Swing percent (50 = straight) and the ticks of the steps it pairs, as applied to the ticks here. */
+  swing: number;
+  swingTicks: number;
   scenes: ArrangedScene[];
   /** How many times the scene sequence repeats in `scenes`. */
   repeats: number;
@@ -120,6 +137,8 @@ export interface ArrangeOptions {
   templateCcs?: readonly number[] | null;
   /** Attach the Circuit's CC to each automation change (default true; false for the Live target). */
   automationCcs?: boolean;
+  /** Apply the project's swing to the timeline (default true). */
+  swing?: boolean;
 }
 
 /** The knob lanes of a MIDI-track pattern as CC changes, from its first step; a value is sent only when it changes. */
@@ -244,22 +263,52 @@ export function drumPatternNotes(p: N.DrumPattern, pitch: number): MidiNote[] {
   return out;
 }
 
-/** Shortens any note that would still sound when the same key starts again, so no two overlap. */
-export function removeOverlaps(notes: readonly MidiNote[]): MidiNote[] {
-  const sorted = [...notes].sort((a, b) => a.tick - b.tick || a.pitch - b.pitch);
-  const lastByKey = new Map<number, MidiNote>();
-  const out: MidiNote[] = [];
-  for (const n of sorted) {
-    const prev = lastByKey.get(n.pitch);
-    if (prev && prev.tick === n.tick) {
-      prev.velocity = Math.max(prev.velocity, n.velocity);
-      prev.dur = Math.max(prev.dur, n.dur);
-      continue;
+/** Where a lane point goes: a MIDI CC (MIDI 1/2 knob lanes) or an automation change, or nowhere. */
+type LaneSink = (lane: number, value: number) => { cc: number } | Omit<AutoEvent, "tick" | "value"> | null;
+
+/**
+ * A pattern step by step, from its first step: notes with their step's probability, and every
+ * stored lane point (not yet thinned to changes; placeSteps does that in play order).
+ */
+export function patternSteps(p: N.NotePattern | N.DrumPattern, drumPitch: number | null, sink: LaneSink): StepContent[] {
+  const step = stepTicks(p.settings), { first, last } = span(p.settings), out: StepContent[] = [];
+  for (let s = first; s <= last; s++) {
+    const c: StepContent = { notes: [], ccs: [], auto: [] };
+    if (drumPitch === null) {
+      const st = (p as N.NotePattern).steps[s];
+      const prob = (st?.probability ?? 7) & 7;
+      for (const u of st?.units ?? []) {
+        if (!u.on || u.note > 127) continue;
+        c.notes.push({
+          tick: Math.round((u.micro * step) / 6), dur: Math.max(1, Math.round((u.gate * step) / 6)), pitch: u.note, velocity: Math.max(1, u.velocity & 127),
+          ...(prob < 7 ? { prob } : {}),
+        });
+      }
+    } else {
+      const st = (p as N.DrumPattern).steps[s];
+      if (st && st.velocity !== 0) {
+        const mask = st.microSteps & 63 || 1, prob = st.probability & 7;
+        for (let k = 0; k < 6; k++) {
+          if (!((mask >> k) & 1)) continue;
+          c.notes.push({
+            tick: Math.round((k * step) / 6), dur: Math.max(1, step >> 2), pitch: drumPitch, velocity: Math.max(1, st.velocity & 127),
+            ...(st.sampleFlip < 64 ? { sample: st.sampleFlip } : {}), ...(prob < 7 ? { prob } : {}),
+          });
+        }
+      }
     }
-    if (prev && prev.tick + prev.dur > n.tick) prev.dur = n.tick - prev.tick;
-    const copy = { ...n };
-    lastByKey.set(n.pitch, copy);
-    out.push(copy);
+    for (let u = 0; u < 6; u++) {
+      p.lanes.forEach((points, lane) => {
+        const v = points[s * 6 + u];
+        if (v === undefined || v === 0xff || v > 127) return;
+        const to = sink(lane, v);
+        if (!to) return;
+        const tick = Math.round((u * step) / 6);
+        if ("target" in to) c.auto.push({ ...to, tick, value: v, lane });
+        else c.ccs.push({ tick, cc: to.cc, value: v });
+      });
+    }
+    out.push(c);
   }
   return out;
 }
@@ -315,6 +364,8 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
   }));
   if (outOfRange.length) warnings.push(`left out notes stored above 127: ${outOfRange.join(", ")}`);
 
+  const swing = opts.swing === false ? 50 : header.swing;
+  const swingTicks = swingStepTicks(project.bytes[N.SWING_SYNC_AT] ?? 3);
   const templateCcs = opts.templateCcs === undefined ? N.DEFAULT_TEMPLATE_CCS : opts.templateCcs;
   const patternCc = patterns.map((list, t) => list.map((p) => (t === 2 || t === 3) && templateCcs ? patternCcs(p as N.NotePattern, templateCcs) : []));
   if (templateCcs && patternCc.some((l) => l.some((c) => c.length))) warnings.push("MIDI 1/2 automation is sent as CC assuming the default MIDI template's knob CCs");
@@ -330,7 +381,16 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
   if (patternAuto.slice(2, 4).some((list) => list.some((a) => a.length)))
     warnings.push("MIDI 1/2 level, pan and send lanes have no CC on the Circuit: they play only in the app's preview");
 
-  const directions = new Set<string>();
+  const steps: StepContent[][][] = patterns.map((list, t) => list.map((p) => patternSteps(p, t < 4 ? null : drumNotes[t - 4] ?? 60, (lane) => {
+    if ((t === 2 || t === 3) && lane < 8) return templateCcs && templateCcs[lane] !== undefined ? { cc: templateCcs[lane]! & 127 } : null;
+    const what = laneTarget(t, lane);
+    if (!what) return null;
+    const cc = withCcs ? deviceCc(t, what.target, what.index, channels) : undefined;
+    return { ...what, ...(cc ? { cc } : {}) };
+  })));
+  const randoms = new Set<string>(), pingPongs = new Set<string>();
+  let anyProb = false;
+  const laps = TRACK_NAMES.map(() => 0);
   const tracks: ArrangedTrack[] = TRACK_NAMES.map((name, t) => ({
     name,
     channel: channels[t] ?? 0,
@@ -357,13 +417,27 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
         while (at < sceneLength && ids.length) {
           const i = ids[k % ids.length]!;
           const len = Math.min(lengthOf(t, i), sceneLength - at);
-          const dir = patterns[t]![i]!.settings.direction;
-          if (dir !== 0) directions.add(`${TRACK_NAMES[t]} pattern ${i + 1}`);
-          const st = patterns[t]![i]!.settings;
-          tracks[t]!.plays.push({ pattern: i, tick: tick + at, length: len, stepTicks: stepTicks(st), firstStep: span(st).first + 1 });
-          for (const n of patternNotes[t]![i]!) if (n.tick < len) tracks[t]!.notes.push({ ...n, tick: tick + at + n.tick });
-          for (const c of patternCc[t]![i]!) if (c.tick < len) tracks[t]!.ccs.push({ ...c, tick: tick + at + c.tick });
-          for (const e of patternAuto[t]![i]!) if (e.tick < len) tracks[t]!.auto.push({ ...e, tick: tick + at + e.tick });
+          const st = patterns[t]![i]!.settings, sTicks = stepTicks(st), here = tick + at, tr = tracks[t]!;
+          const content = steps[t]![i]!;
+          tr.plays.push({ pattern: i, tick: here, length: len, stepTicks: sTicks, firstStep: span(st).first + 1 });
+          const order = stepOrder(st.direction, content.length, laps[t]!);
+          if (st.direction === 2) { laps[t]!++; pingPongs.add(`${TRACK_NAMES[t]} pattern ${i + 1}`); }
+          const rnd = order === null;
+          if (rnd) {
+            randoms.add(`${TRACK_NAMES[t]} pattern ${i + 1}`);
+            tr.random ??= { plays: [], steps: {} };
+            tr.random.plays.push({ pattern: i, tick: here, length: len, stepTicks: sTicks });
+            tr.random.steps[i] ??= content;
+          }
+          const placed = placeSteps(content, order ?? content.map((_, k) => k), sTicks, len);
+          const flag = rnd ? { rnd: true as const } : {};
+          for (const n of placed.notes) {
+            if (n.prob !== undefined) anyProb = true;
+            const step = here + Math.floor(n.tick / sTicks) * sTicks;
+            tr.notes.push({ ...n, tick: here + n.tick, ...(n.prob !== undefined ? { step } : {}), ...flag });
+          }
+          for (const c of placed.ccs) tr.ccs.push({ ...c, tick: here + c.tick, ...flag });
+          for (const e of placed.auto) tr.auto.push({ ...e, tick: here + e.tick, ...flag });
           at += len; k++;
         }
       });
@@ -372,10 +446,18 @@ export function arrange(project: N.Project, opts: ArrangeOptions = {}): Arrangem
     }
   }
 
-  for (const t of tracks) t.notes = removeOverlaps(t.notes).map((n) => ({ ...n, dur: Math.min(n.dur, tick - n.tick) })).filter((n) => n.dur > 0);
-  if (directions.size) warnings.push(`played forward, though set to another direction: ${[...directions].join(", ")}`);
-  if (header.swing !== 50) warnings.push(`swing ${header.swing} is not applied`);
-  warnings.push("probability is not applied: every note plays");
+  for (const t of tracks) {
+    if (swing !== 50) {
+      t.notes = t.notes.map((n) => swingNote(n, swing, swingTicks, tick));
+      t.ccs = t.ccs.map((c) => ({ ...c, tick: swingTick(c.tick, swing, swingTicks, tick) }));
+      t.auto = t.auto.map((e) => ({ ...e, tick: swingTick(e.tick, swing, swingTicks, tick) }));
+    }
+    t.notes = removeOverlaps(t.notes).map((n) => ({ ...n, dur: Math.min(n.dur, tick - n.tick) })).filter((n) => n.dur > 0);
+  }
+  if (swing !== 50) warnings.push(`swing ${swing} % is applied to pairs of steps; the device's exact swing curve is not measured`);
+  if (pingPongs.size) warnings.push(`ping-pong alternates direction on each play, repeating the end steps (not confirmed on a device): ${[...pingPongs].join(", ")}`);
+  if (randoms.size) warnings.push(`random direction: files have these patterns forward; playback picks the steps at random: ${[...randoms].join(", ")}`);
+  if (anyProb) warnings.push("step probability: files have every note; playback rolls each step on each pass");
 
-  return { name: header.name, bpm: header.tempo, ppq: PPQ, scenes: arrangedScenes, repeats, tracks, length: tick, warnings };
+  return { name: header.name, bpm: header.tempo, ppq: PPQ, swing, swingTicks, scenes: arrangedScenes, repeats, tracks, length: tick, warnings };
 }

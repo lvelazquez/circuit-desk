@@ -90,4 +90,18 @@ describe("schedule", () => {
     expect(all).not.toContain(0x99);
     expect(s.stop(10_000).at(-1)?.bytes).toEqual([0xfc]);
   });
+
+  it("rolls step probability again on each loop pass", () => {
+    const b = blankProject();
+    b[N.TEMPO_AT] = 120;
+    const o = N.notePatternOffset(0, 0);
+    b[o] = 1; b[o + 1] = 3; b[o + 4] = 60; b[o + 5] = 6; b[o + 7] = 100; // step 1: C4 at 50 %
+    const a = arrange(N.openProject(b), { pattern: 1 });
+    const rolls = [0.9, 0.1]; // pass 1: roll 7 > 3, silent; pass 2: roll 0, plays
+    const s = new Schedule(a, { lookahead: 10, rng: () => rolls.shift() ?? 0 });
+    s.play(0);
+    const ons = (msgs: { bytes: number[] }[]): number => msgs.filter((m) => m.bytes[0] === 0x90).length;
+    expect(ons(s.pump(0))).toBe(0);
+    expect(ons(s.pump(s.lengthMs - 5))).toBe(1);
+  });
 });

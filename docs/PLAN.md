@@ -209,6 +209,10 @@ Illegal input is flagged in the GUI and returned as MCP validation errors.
 - **Offline render** (`render.ts`): the arrangement through the engine on an `OfflineAudioContext` → 16-bit WAV. Used by File › Export Preview Audio (⌘⌥E, writes `<name> (preview).wav` in Exports) and by `npm run app:render -- <ncs>`. **Use for S1/S2:** golden renders — once a device recording exists, compare the engine's render to it per track.
 - **Pack view**: the 64 samples, click to audition, which drums use which; the place for patch auditioning and editing once patches decode.
 - **Not modelled yet:** drum knobs (pitch/decay etc.), mixer levels, pan, FX (reverb/delay/sidechain), swing, probability, synth macros. Each is a decode-track item first.
+- **Sequencer timing (2026-11-20):** `packages/export/src/steps.ts`.
+  - Reverse, ping-pong (alternates each play, end steps repeat: inferred from the per-track lap counter, NOTAS:2057) and swing (pairs of 1/16 steps; curve not measured) go into files and playback.
+  - Step probability ((p + 1) / 8, one roll per step, NOTAS:2042/2359) and random direction are rolled again on each loop pass by the scheduler. Files keep every note and write random patterns forward.
+  - Direction order 0–3 = Forward, Reverse, Ping-pong, Random, from the Circuit Tracks User Guide v2 pads 29–32.
 
 ## Sound engine options and the Ableton link (effort estimates)
 | Tier | What | Fidelity | Effort [estimate] | Risk |

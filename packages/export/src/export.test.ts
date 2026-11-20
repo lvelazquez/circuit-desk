@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as N from "@circuit-desk/ncs";
 import { blankProject } from "../../ncs/src/testing.ts";
-import { arrange, drumPatternNotes, notePatternNotes, patternAutomation, removeOverlaps } from "./arrange.ts";
+import { arrange, drumPatternNotes, notePatternNotes, patternAutomation } from "./arrange.ts";
+import { realise, removeOverlaps, swingTick } from "./steps.ts";
 import { readSmf } from "./smf-read.ts";
 import { vlq, writeSmf } from "./smf.ts";
 
@@ -79,13 +80,77 @@ describe("arrangement", () => {
     expect(a.tracks[0]!.notes).toEqual([{ tick: 1920, dur: 120, pitch: 67, velocity: 100 }]);
   });
 
-  it("warns about what it does not apply", () => {
+  it("plays reverse patterns from their last step to their first", () => {
     const b = blankProject();
-    b[N.SWING_AT] = 60;
+    putNote(b, 0, 0, 0, 0, 60, 6, 0, 100);
+    putNote(b, 0, 0, 1, 0, 62, 6, 2, 100);
     b[N.notePatternOffset(0, 0) + N.SETT + 3] = 1;
-    const w = arrange(N.openProject(b)).warnings.join("\n");
-    expect(w).toMatch(/swing 60/);
-    expect(w).toMatch(/Synth 1 pattern 1/);
+    const a = arrange(N.openProject(b), { pattern: 1 });
+    // 16 steps of 120: step 1 lands in the last slot, step 2 (micro 2) in the one before.
+    expect(a.tracks[0]!.notes.map((n) => [n.tick, n.pitch])).toEqual([[14 * 120 + 40, 62], [15 * 120, 60]]);
+  });
+
+  it("alternates ping-pong patterns forward and backward on each play", () => {
+    const b = blankProject();
+    putNote(b, 0, 0, 0, 0, 60, 6, 0, 100);
+    b[N.notePatternOffset(0, 0) + N.SETT + 3] = 2;
+    const a = arrange(N.openProject(b), { pattern: 1, repeats: 3 });
+    expect(a.tracks[0]!.notes.map((n) => n.tick)).toEqual([0, 1920 + 15 * 120, 3840]);
+    expect(a.warnings.join("\n")).toMatch(/ping-pong .* Synth 1 pattern 1/);
+  });
+
+  it("writes random-direction patterns forward to files and rolls their steps at playback", () => {
+    const b = blankProject();
+    for (let s = 0; s < 16; s++) putNote(b, 0, 0, s, 0, 60 + s, 6, 0, 100);
+    b[N.notePatternOffset(0, 0) + N.SETT + 3] = 3;
+    const a = arrange(N.openProject(b), { pattern: 1 });
+    expect(a.tracks[0]!.notes.map((n) => n.pitch)).toEqual(Array.from({ length: 16 }, (_, s) => 60 + s));
+    expect(a.warnings.join("\n")).toMatch(/random direction: .*Synth 1 pattern 1/);
+    // Every slot picks the last step.
+    const played = realise(a, () => 0.99)[0]!.notes;
+    expect(played.map((n) => [n.tick, n.pitch])).toEqual(Array.from({ length: 16 }, (_, k) => [k * 120, 75]));
+  });
+
+  it("swings the second step of each 1/16 pair", () => {
+    const b = blankProject();
+    b[N.SWING_AT] = 75;
+    putNote(b, 0, 0, 0, 0, 60, 6, 0, 100);
+    putNote(b, 0, 0, 1, 0, 62, 6, 0, 100);
+    putNote(b, 0, 0, 1, 1, 64, 3, 3, 100); // half a step in, half a step long
+    const a = arrange(N.openProject(b), { pattern: 1 });
+    // A pair of 240 ticks: the first step lasts 75 % of it (180), the second 60.
+    expect(a.swing).toBe(75);
+    expect(a.tracks[0]!.notes.map((n) => [n.tick, n.dur, n.pitch])).toEqual([[0, 180, 60], [180, 60, 62], [210, 30, 64]]);
+    expect(a.warnings.join("\n")).toMatch(/swing 75/);
+    expect(arrange(N.openProject(b), { pattern: 1, swing: false }).tracks[0]!.notes[1]!.tick).toBe(120);
+  });
+
+  it("keeps a pair cut short by the loop end straight", () => {
+    expect(swingTick(130, 75, 120, 360)).toBe(185); // 180 + 10 × 60 / 120
+    expect(swingTick(250, 75, 120, 360)).toBe(250);
+  });
+
+  it("rolls step probability once per step for all its notes, (p + 1) / 8", () => {
+    const b = blankProject();
+    putNote(b, 0, 0, 0, 0, 60, 6, 0, 100);
+    putNote(b, 0, 0, 0, 1, 64, 6, 0, 100);
+    putNote(b, 0, 0, 1, 0, 67, 6, 0, 100);
+    b[N.notePatternOffset(0, 0) + 1] = 3; // step 1: 50 %
+    const a = arrange(N.openProject(b), { pattern: 1 });
+    expect(a.tracks[0]!.notes).toHaveLength(3);
+    expect(a.warnings.join("\n")).toMatch(/probability/);
+    const pitches = (r: number): number[] => realise(a, () => r)[0]!.notes.map((n) => n.pitch).sort();
+    expect(pitches(0.49)).toEqual([60, 64, 67]); // roll 3 ≤ 3
+    expect(pitches(0.5)).toEqual([67]); // roll 4 > 3: the whole step is silent
+  });
+
+  it("rolls drum probability and keeps every micro-step hit of the step together", () => {
+    const b = blankProject();
+    putHit(b, 0, 0, 0, 100, 0b11);
+    b[N.drumPatternOffset(0, 0) + 0x20] = 0; // 12.5 %
+    const a = arrange(N.openProject(b), { pattern: 1 });
+    expect(realise(a, () => 0.1)[4]!.notes).toHaveLength(2);
+    expect(realise(a, () => 0.2)[4]!.notes).toHaveLength(0);
   });
 });
 

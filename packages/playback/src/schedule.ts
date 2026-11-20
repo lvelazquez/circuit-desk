@@ -1,7 +1,7 @@
 // Turns an arrangement into timed MIDI messages and hands them out a little ahead of time, so a
 // MIDI output with timestamps (Web MIDI) plays them exactly. Pure: no timers, no MIDI access.
 // The caller calls `pump(now)` every few milliseconds and sends what it returns.
-import type { Arrangement, AutoTarget } from "@circuit-desk/export";
+import { realise, type Arrangement, type AutoTarget } from "@circuit-desk/export";
 
 export interface TimedMessage {
   /** When to send, in the caller's clock (ms). */
@@ -29,14 +29,23 @@ export interface ScheduleOptions {
   lookahead?: number;
   /** Tracks (by index 0–7) that do not play. */
   muted?: ReadonlySet<number>;
+  /**
+   * Random source for step probability and random-direction patterns, rolled again on each pass
+   * (0 ≤ x < 1). Default Math.random.
+   */
+  rng?: () => number;
 }
 
-/** All of an arrangement's messages in tick order; note-offs before note-ons at the same tick. */
+/**
+ * All of one pass's messages in tick order; note-offs before note-ons at the same tick. Step
+ * probability and random directions are rolled with `opts.rng`.
+ */
 export function events(a: Arrangement, opts: ScheduleOptions = {}): Ev[] {
   const out: Ev[] = [];
-  a.tracks.forEach((t, i) => {
+  realise(a, opts.rng ?? Math.random).forEach((t, i) => {
+    const channel = a.tracks[i]?.channel ?? 0;
     if (opts.muted?.has(i)) return;
-    for (const c of t.ccs) out.push({ tick: c.tick, order: 1, bytes: [0xb0 | (t.channel & 15), c.cc, c.value], track: i });
+    for (const c of t.ccs) out.push({ tick: c.tick, order: 1, bytes: [0xb0 | (channel & 15), c.cc, c.value], track: i });
     // Automation goes before notes at the same tick, so a hit or note starts with its new value.
     for (const e of t.auto ?? []) {
       out.push({
@@ -45,8 +54,8 @@ export function events(a: Arrangement, opts: ScheduleOptions = {}): Ev[] {
       });
     }
     for (const n of t.notes) {
-      out.push({ tick: n.tick, order: 2, bytes: [0x90 | (t.channel & 15), n.pitch, n.velocity], track: i, ...(n.sample !== undefined ? { sample: n.sample } : {}) });
-      out.push({ tick: n.tick + n.dur, order: 1, bytes: [0x80 | (t.channel & 15), n.pitch, 0], track: i });
+      out.push({ tick: n.tick, order: 2, bytes: [0x90 | (channel & 15), n.pitch, n.velocity], track: i, ...(n.sample !== undefined ? { sample: n.sample } : {}) });
+      out.push({ tick: n.tick + n.dur, order: 1, bytes: [0x80 | (channel & 15), n.pitch, 0], track: i });
     }
   });
   if (opts.clock) for (let k = 0; k < a.length; k += a.ppq / 24) out.push({ tick: k, order: 0, bytes: [0xf8] });
@@ -57,6 +66,8 @@ export class Schedule {
   private evs: Ev[];
   private readonly a: Arrangement;
   private readonly opts: Required<Omit<ScheduleOptions, "muted">> & { muted: ReadonlySet<number> };
+  /** Whether a pass can differ from the last (probability or random direction): then each pass is rolled again. */
+  private readonly rolls: boolean;
   private readonly msPerTick: number;
   private start = 0;
   /** Index of the next event, and the loop pass it belongs to. */
@@ -68,7 +79,8 @@ export class Schedule {
   constructor(a: Arrangement, opts: ScheduleOptions = {}) {
     if (!(a.bpm > 0) || a.length <= 0) throw new RangeError("nothing to play: the arrangement has no tempo or no length");
     this.a = a;
-    this.opts = { clock: opts.clock ?? false, loop: opts.loop ?? true, lookahead: opts.lookahead ?? 100, muted: opts.muted ?? new Set() };
+    this.opts = { clock: opts.clock ?? false, loop: opts.loop ?? true, lookahead: opts.lookahead ?? 100, muted: opts.muted ?? new Set(), rng: opts.rng ?? Math.random };
+    this.rolls = a.tracks.some((t) => t.random || t.notes.some((n) => n.prob !== undefined));
     this.evs = events(a, this.opts);
     this.msPerTick = 60_000 / a.bpm / a.ppq;
   }
@@ -101,6 +113,7 @@ export class Schedule {
       if (this.next >= this.evs.length) {
         if (!this.opts.loop) { this.running = false; break; }
         this.pass++; this.next = 0;
+        if (this.rolls) this.evs = events(this.a, this.opts);
         if (!this.evs.length) break;
       }
       const e = this.evs[this.next]!;
