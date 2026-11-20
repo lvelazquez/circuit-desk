@@ -42,8 +42,8 @@ export const SESSION_FIELDS: readonly Field[] = [
   { id: "looseSettings", offset: L.LOOSE, size: L.LOOSE_N, status: "unknown", evidence: "10 of 24 bytes vary across 152 projects" },
   { id: "patch.synth1", offset: L.PATCH0, size: L.PATCH_SIZE, status: "partial", evidence: "Novation Programmer's Reference v3 Synth Patch Format, field table in packages/patch; 1 050 card patches in range (tools/patch-sweep.ts). Verified after one device dump matches (plan D-8)" },
   { id: "patch.synth2", offset: L.PATCH0 + L.PATCH_SIZE, size: L.PATCH_SIZE, status: "partial", evidence: "Novation Programmer's Reference v3 Synth Patch Format, field table in packages/patch; 1 050 card patches in range (tools/patch-sweep.ts). Verified after one device dump matches (plan D-8)" },
-  { id: "drumBlock", offset: L.DRUM_BLOCK, size: 4 * L.DRUM_RECORD, status: "partial", evidence: "sd_app.html:1031: byte 0 of each 11-byte record is the sample index; the rest is not described" },
-  { id: "projectParams", offset: L.PROJECT_PARAMS, size: L.PROJECT_PARAMS_N, status: "unknown", evidence: "52 of 60 bytes vary across 152 projects" },
+  { id: "drumBlock", offset: L.DRUM_BLOCK, size: 4 * L.DRUM_RECORD, status: "partial", evidence: "firmware drum descriptors (0x08058FA0): bytes 0–6 of each 11-byte record are sample, level, pitch, decay, distortion, EQ, pan; 7–10 reserved. Read by sound.ts" },
+  { id: "projectParams", offset: L.PROJECT_PARAMS, size: L.PROJECT_PARAMS_N, status: "partial", evidence: "firmware project descriptors (0x08057AD0) and the Programmer's Reference: reverb, delay, sends, FX bypass, sidechains, levels, pans; offsets 11–15 and 30 reserved. Read by sound.ts" },
   { id: "tail", offset: L.TAIL, size: L.TAIL_N, status: "unknown", evidence: "not read by stock; not zero in 24 of 152 projects; CIRCUIT-HACKS keeps signed blocks here" },
 ];
 

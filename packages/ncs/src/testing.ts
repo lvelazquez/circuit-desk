@@ -18,6 +18,14 @@ export function blankProject(name = "Blank"): Uint8Array {
   v.setUint32(L.HEADER_SIZE_AT, L.SESS_SIZE, true);
   for (let i = 0; i < Math.min(name.length, L.NAME_LEN); i++) b[L.NAME_AT + i] = name.charCodeAt(i);
   b[L.TEMPO_AT] = 120; b[L.SWING_AT] = 50; b[L.SWING_SYNC_AT] = 3;
+  // Sound settings as a new project has them (Programmer's Reference defaults; drum decay 127, the
+  // value most card projects keep): without them every track would sit at level 0.
+  const P = L.PROJECT_PARAMS;
+  b[P + 8] = 2; b[P + 9] = 64; b[P + 10] = 64;                          // reverb: Large Room
+  b.set([64, 20, 64, 127, 4, 5], P + 24);                               // delay: time, sync, feedback, width, ratio, slew
+  for (let t = 0; t < 4; t++) b.set([4, 0, 50, 70, 0], P + 32 + 5 * t); // sidechains off
+  b.set([100, 100, 100, 100, 64, 64, 64, 64], P + 52);                  // levels, pans
+  for (let d = 0; d < 4; d++) b.set([0, 100, 64, 127, 0, 64, 64], L.DRUM_BLOCK + d * L.DRUM_RECORD);
   for (let track = 0; track < 4; track++) {
     for (let index = 0; index < L.PATTERNS_PER_TRACK; index++) {
       const o = L.notePatternOffset(track, index);
