@@ -18,6 +18,7 @@
     "app": "npm run app:build && electron app/electron/main.ts",
     "app:smoke": "npm run app:build && electron app/scripts/smoke.ts",
     "app:midi-probe": "npm run app:build && electron app/scripts/midi-probe.ts",
+    "app:midi-record": "npm run app:build && electron app/scripts/midi-record.ts",
     "app:render": "npm run app:build && electron app/scripts/render-preview.ts",
     "app:bundle": "vite build --config app/vite.electron.config.ts",
     "app:dist": "node tools/package-app.ts",
