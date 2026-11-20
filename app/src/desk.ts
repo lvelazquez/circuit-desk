@@ -26,3 +26,4 @@ export type DrumPatternData = Extract<PatternData, { kind: "drums" }>;
 export type Scenes = Awaited<ReturnType<DeskService["getScenes"]>>;
 export type Listing = Awaited<ReturnType<DeskService["listProjects"]>>[number];
 export type Automation = Awaited<ReturnType<DeskService["getAutomation"]>>;
+export type Settings = Awaited<ReturnType<DeskService["settings"]>>;

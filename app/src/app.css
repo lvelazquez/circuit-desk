@@ -167,3 +167,21 @@ button, input, select { font: inherit; color: inherit; }
 
 /* A compact button for the status bar. */
 .btn.btn-small { padding: var(--space-2xs) var(--space-sm); font-size: var(--font-size-sm); }
+
+/* Mixer and project settings. */
+.mixer h2, .project-settings h2 { font-size: var(--font-size-sm); font-weight: var(--font-weight-strong); color: var(--color-text-secondary); margin: var(--space-xl) 0 var(--space-sm); }
+.strips { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-strip), 1fr)); gap: var(--space-sm); }
+.strip, .fx-panel { border: var(--size-border) solid var(--color-border-subtle); border-radius: var(--radius-control); padding: var(--space-sm); margin: 0; display: grid; gap: var(--space-xs); align-content: start; background: var(--color-surface-panel); }
+.strip { border-top: var(--size-border-strong) solid var(--track); }
+.strip[data-silent="true"] { opacity: var(--opacity-muted); }
+.strip legend, .fx-panel legend { color: var(--color-text-secondary); font-size: var(--font-size-sm); padding: 0 var(--space-xs); }
+.fx-panels { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--size-fx-panel), 1fr)); gap: var(--space-sm); margin-top: var(--space-md); }
+.fx-panel[style*="--track"] { border-top: var(--size-border-strong) solid var(--track); }
+.fx-panel label, .strip label { color: var(--color-text-secondary); font-size: var(--font-size-sm); display: grid; gap: var(--space-2xs); }
+.fx-panel select, .fx-panel input[type="text"] { background: var(--color-surface-raised); border: var(--size-border) solid var(--color-border-subtle); border-radius: var(--radius-control); padding: var(--space-xs); max-width: var(--size-text-input); }
+.slider { grid-template-columns: 1fr var(--size-slider-value); align-items: center; }
+.slider .slider-label { grid-column: 1 / -1; }
+.slider input[type="range"] { width: 100%; accent-color: var(--track, var(--color-text-secondary)); }
+.slider output { font-family: var(--font-family-mono); font-size: var(--font-size-xs); color: var(--color-text-primary); text-align: right; }
+.project-settings > .fx-panel { margin-bottom: var(--space-md); max-width: calc(var(--size-fx-panel) * 2); }
+.pad.key[data-gap="true"] { background: var(--color-outside-range); cursor: default; }

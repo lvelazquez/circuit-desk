@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gridMove, moveNote, noteName, rollRange, stepMap, toggleNote, toggleStep, updateNote } from "./model.ts";
+import { gridMove, keyboardNote, moveNote, noteName, rollRange, stepMap, toggleNote, toggleStep, updateNote } from "./model.ts";
 
 const notes = stepMap([{ step: 1, probability: 7, notes: [{ note: 60, velocity: 100, gate: 6, micro: 0 }] }]);
 
@@ -39,5 +39,18 @@ describe("window model", () => {
     expect(r[0]).toBeGreaterThanOrEqual(67);
     expect(r.length).toBeGreaterThanOrEqual(25);
     expect(r).toEqual([...r].sort((a, b) => b - a));
+  });
+});
+
+describe("keyboard pads", () => {
+  it("climb the scale on the bottom row and repeat it an octave up on the top row", () => {
+    const major = { root: 0, type: 1 };
+    expect(Array.from({ length: 8 }, (_, c) => keyboardNote(major, 48, 8 + c))).toEqual([48, 50, 52, 53, 55, 57, 59, 60]);
+    expect(keyboardNote(major, 48, 0)).toBe(60);
+  });
+  it("lay out Chromatic as a piano, with gaps where no sharp is", () => {
+    const chroma = { root: 0, type: 15 };
+    expect(Array.from({ length: 8 }, (_, c) => keyboardNote(chroma, 48, c))).toEqual([null, 49, 51, null, 54, 56, 58, null]);
+    expect(keyboardNote(chroma, 48, 15)).toBe(60);
   });
 });

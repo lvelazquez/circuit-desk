@@ -182,6 +182,44 @@ async function run(): Promise<void> {
   const shot3 = path.join(home, "scenes-view.png");
   writeFileSync(shot3, (await wc.capturePage()).toPNG());
 
+  // Mixer: one keyboard step on a level is one edit; mute marks the strip; both undo.
+  const click = (label: string): Promise<unknown> => js(`[...document.querySelectorAll('button')].find(b => b.textContent === '${label}').click()`);
+  await click("Mixer");
+  check("the Mixer shows a strip per track", await until(`document.querySelectorAll('.strip').length === 8`));
+  const level = `document.querySelector('.strip input[type=range]')`;
+  const level0 = await js<number>(`+${level}.value`);
+  await js(`${level}.focus()`);
+  await key("Right");
+  check("a key on a level slider saves one edit", await until(`document.querySelector('[role=status]').textContent === 'Edited: Synth 1 level ${level0 + 1}'`),
+    await js<string>(`document.querySelector('[role=status]').textContent`));
+  await js(`[...document.querySelector('.strip').querySelectorAll('button')].find(b => b.textContent === 'Mute').click()`);
+  check("Mute marks the strip silent", await until(`document.querySelector('.strip').dataset.silent === 'true'`));
+  await js(`[...document.querySelectorAll('.strip')][4].querySelectorAll('button')[1].click()`);
+  check("Solo on Drum 1 silences every other strip", await until(`[...document.querySelectorAll('.strip')].filter(s => s.dataset.silent === 'true').length === 7`));
+  writeFileSync(path.join(home, "mixer-view.png"), (await wc.capturePage()).toPNG());
+  await js(`[...document.querySelectorAll('.strip')][4].querySelectorAll('button')[1].click()`);
+  await js(`[...document.querySelector('.strip').querySelectorAll('button')].find(b => b.textContent === 'Mute').click()`);
+  await click("Undo");
+  check("Undo puts the level back", await until(`+${level}.value === ${level0}`));
+
+  // Project: the root transposes what the pads and steps show; the keyboard follows the scale.
+  await click("Project");
+  await until(`!!document.querySelector('.project-settings select')`);
+  const pick = (n: number, v: string): Promise<unknown> => js(`(() => { const s = document.querySelectorAll('.project-settings select')[${n}]; s.value = '${v}'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  await pick(0, "2");
+  check("choosing root D is an edit", await until(`document.querySelector('[role=status]').textContent === 'Edited: root D'`));
+  await pick(1, "1");
+  check("choosing Major is an edit", await until(`document.querySelector('[role=status]').textContent === 'Edited: scale Major'`));
+  writeFileSync(path.join(home, "project-view.png"), (await wc.capturePage()).toPNG());
+  await click("Circuit");
+  check("a stored C4 shows as D4 with root D", await until(`${step1}.getAttribute('aria-label').startsWith('Step 1: D4')`), await js<string>(`${step1}.getAttribute('aria-label')`));
+  const keyLabels = await js<string[]>(`[...document.querySelectorAll('.pad.key')].slice(8).map(b => b.textContent.replace(' ●', ''))`);
+  check("the bottom row of keys climbs D major", keyLabels.join(" ") === "D3 E3 F♯3 G3 A3 B3 C♯4 D4", keyLabels.join(" "));
+  writeFileSync(path.join(home, "circuit-scale.png"), (await wc.capturePage()).toPNG());
+  await click("Undo"); await click("Undo");
+  check("Undo returns to C natural minor", await until(`${step1}.getAttribute('aria-label').startsWith('Step 1: C4') && [...document.querySelectorAll('.pad.key')].slice(8).map(b => b.textContent.replace(' ●', '')).join(' ') === 'C3 D3 D♯3 F3 G3 G♯3 A♯3 C4'`),
+    await js<string>(`[...document.querySelectorAll('.pad.key')].slice(8).map(b => b.textContent).join(' ')`));
+
   // An edit from outside (as the MCP server makes it) shows in the window.
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
   const link = await SocketClient.connect(path.join(home, ".circuit-desk.sock"));

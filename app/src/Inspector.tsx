@@ -1,10 +1,13 @@
 // Edits the selected step (notes or drum hit), the pattern's length and rate, and the track's chain.
-import type { DrumStepIn, NoteOut, NoteStepIn, SyncRate, TrackName } from "@circuit-desk/core-service";
+import type { Direction, DrumStepIn, NoteOut, NoteStepIn, SyncRate, TrackName } from "@circuit-desk/core-service";
 import type { PatternData, Scenes } from "./desk.ts";
-import { DEFAULT_NOTE, MAX_NOTES, noteName, stepMap } from "./model.ts";
+import { DEFAULT_NOTE, getNoteRoot, MAX_NOTES, noteName, stepMap } from "./model.ts";
 import { NumberField } from "./NumberField.tsx";
 
 const SYNC_RATES: readonly SyncRate[] = ["1/32T", "1/32", "1/16T", "1/16", "1/8T", "1/8", "1/4T", "1/4"];
+const DIRECTIONS: readonly { value: Direction; label: string }[] = [
+  { value: "forward", label: "Forward" }, { value: "reverse", label: "Reverse" }, { value: "ping-pong", label: "Ping-pong" }, { value: "random", label: "Random" },
+];
 
 export interface InspectorProps {
   track: TrackName;
@@ -15,7 +18,7 @@ export interface InspectorProps {
   currentNote: number;
   onNoteSteps: (steps: NoteStepIn[], label: string) => void;
   onDrumSteps: (steps: DrumStepIn[], label: string) => void;
-  onSettings: (s: { firstStep?: number; lastStep?: number; syncRate?: SyncRate }) => void;
+  onSettings: (s: { firstStep?: number; lastStep?: number; syncRate?: SyncRate; direction?: Direction }) => void;
   onChain: (first: number, last: number) => void;
 }
 
@@ -39,8 +42,12 @@ export function Inspector(p: InspectorProps) {
               {SYNC_RATES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </label>
+          <label>Direction
+            <select value={p.data.settings.direction} onChange={(e) => p.onSettings({ direction: e.target.value as Direction })}>
+              {DIRECTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+          </label>
         </div>
-        {p.data.settings.direction !== 0 && <p className="hint">Play direction {p.data.settings.direction} (not forward) is kept but not editable yet.</p>}
       </fieldset>
 
       <h2>{p.track} chain</h2>
@@ -60,6 +67,7 @@ export function Inspector(p: InspectorProps) {
 function NoteStep(p: InspectorProps & { step: number }) {
   if (p.data.kind !== "notes") return null;
   const notes = stepMap(p.data.steps).get(p.step) ?? [];
+  const root = getNoteRoot();
   const probability = p.data.steps.find((s) => s.step === p.step)?.probability ?? 7;
   const write = (next: NoteOut[], label: string, prob?: number): void =>
     p.onNoteSteps([{ step: p.step, notes: next, ...(prob !== undefined ? { probability: prob } : {}) }], label);
@@ -74,7 +82,8 @@ function NoteStep(p: InspectorProps & { step: number }) {
       {notes.map((n, i) => (
         <div className="note-row" key={`${n.note}-${i}`} role="group" aria-label={`Note ${i + 1}: ${noteName(n.note)}`}>
           <span>{noteName(n.note)}</span>
-          <NumberField hideLabel label={`Note ${i + 1} pitch`} value={n.note} min={0} max={127} onCommit={(v) => { if (!notes.some((x, k) => k !== i && x.note === v)) change(i, { note: v }); }} />
+          {/* The MIDI pitch it sounds at (stored note + root), as the name beside it. */}
+          <NumberField hideLabel label={`Note ${i + 1} pitch, as MIDI note number`} value={n.note + root} min={root} max={127} onCommit={(v) => { const st = v - root; if (!notes.some((x, k) => k !== i && x.note === st)) change(i, { note: st }); }} />
           <NumberField hideLabel label={`Note ${i + 1} velocity`} value={n.velocity} min={1} max={127} onCommit={(v) => change(i, { velocity: v })} />
           <NumberField hideLabel label={`Note ${i + 1} gate, in sixths of a step`} value={n.gate} min={1} max={96} onCommit={(v) => change(i, { gate: v })} />
           <NumberField hideLabel label={`Note ${i + 1} micro-step offset, in sixths`} value={n.micro} min={0} max={5} onCommit={(v) => change(i, { micro: v })} />

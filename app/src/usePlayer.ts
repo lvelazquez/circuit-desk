@@ -55,6 +55,17 @@ export function usePlayer(projectId: string | null, version: number) {
   const playFromRef = useRef<PlayFrom>({ kind: "current" });
   const [fx, setFxState] = useState(remembered(FX_KEY) !== "off");
   const fxRef = useRef(fx);
+  // Mute and solo (playback only). A change while playing hands over to a new schedule.
+  const [muted, setMuted] = useState<ReadonlySet<number>>(new Set());
+  const [solo, setSolo] = useState<number | null>(null);
+  const silentRef = useRef<ReadonlySet<number>>(new Set());
+  const [mixVersion, setMixVersion] = useState(0);
+  useEffect(() => {
+    silentRef.current = solo === null ? muted : new Set([0, 1, 2, 3, 4, 5, 6, 7].filter((t) => t !== solo));
+    setMixVersion((v) => v + 1);
+  }, [muted, solo]);
+  const toggleMute = useCallback((t: number): void => setMuted((m) => { const n = new Set(m); if (n.has(t)) n.delete(t); else n.add(t); return n; }), []);
+  const toggleSolo = useCallback((t: number): void => setSolo((cur) => (cur === t ? null : t)), []);
 
   useEffect(() => {
     setPorts([{ id: PREVIEW_PORT, name: "Built-in preview" }]);
@@ -108,7 +119,7 @@ export function usePlayer(projectId: string | null, version: number) {
       if (!a.tracks.some((t) => t.notes.length)) { setError("Nothing to play: the current patterns have no notes"); return; }
       arr.current = a;
       await prepare(a);
-      const s = new Schedule(a, { clock });
+      const s = new Schedule(a, { clock, muted: silentRef.current });
       send(s.play(performance.now()));
       sched.current = s; setPlaying(true); setError(null);
     } catch (e) { setError((e as Error).message); }
@@ -155,17 +166,17 @@ export function usePlayer(projectId: string | null, version: number) {
       void prepare(a); // new sample flips load in the background; until then they use the track's sample
       const now = performance.now(), at = old.position(now) % a.length;
       send(old.stop(now, true));
-      const s = new Schedule(a, { clock });
+      const s = new Schedule(a, { clock, muted: silentRef.current });
       s.play(now, at);
       arr.current = a; sched.current = s;
     }, (e: unknown) => setError((e as Error).message));
     return () => { live = false; };
-  }, [version]); // only an edit restarts the schedule
+  }, [version, mixVersion]); // only an edit, a mute or a solo restarts the schedule
 
   // Opening another project stops playback.
   useEffect(() => () => stop(), [projectId]);
 
   const choosePort = (id: string): void => { if (playing) stop(); setPortId(id || null); if (id) remember(PORT_KEY, id); };
   const chooseTarget = (t: PlayTarget): void => { if (playing) stop(); setTarget(t); remember(TARGET_KEY, t); };
-  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error, liveOutput: output, playFrom, choosePlayFrom, fx, setFx };
+  return { ports, portId, choosePort, target, chooseTarget, playing, play, stop, clock, setClock, heads, error, liveOutput: output, playFrom, choosePlayFrom, fx, setFx, muted, solo, toggleMute, toggleSolo };
 }

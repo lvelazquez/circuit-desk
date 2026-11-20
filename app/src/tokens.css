@@ -62,6 +62,10 @@
   --size-velocity-lane: 64px;
   --size-lane: 36px;
   --size-toolbar-select: 180px;
+  --size-strip: 150px;
+  --size-fx-panel: 230px;
+  --size-slider-value: 36px;
+  --size-text-input: 260px;
   /* Steps in a pattern: a fixed fact of the device, kept here so layout math names it. */
   --count-steps: 32;
   --size-velocity-bar: 60%;

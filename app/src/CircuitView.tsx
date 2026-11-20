@@ -1,15 +1,20 @@
 // The device-like view: track buttons, pattern pads, the 4 × 8 pad grid and the macro knobs.
-// Note tracks: rows 1–2 are 16 steps (page 1–16 or 17–32), rows 3–4 a 16-key keyboard.
+// Note tracks: rows 1–2 are 16 steps (page 1–16 or 17–32), rows 3–4 a 16-key keyboard laid out
+// as on the device: in a scale, the bottom row climbs the scale from the root and the top row is
+// the same an octave up; in Chromatic, a piano (naturals below, sharps above).
 // Drum tracks: all 32 steps.
 import type { CSSProperties, KeyboardEvent } from "react";
 import type { NoteStepIn, TrackName } from "@circuit-desk/core-service";
 import type { DrumPatternData, NotePatternData, PatternData, Summary } from "./desk.ts";
-import { isBlackKey, noteName, noteSpoken, stepMap, toggleNote, toggleStep } from "./model.ts";
+import { SCALE_NAMES, type ScaleSetting } from "@circuit-desk/ncs";
+import { isBlackKey, keyboardNote, noteName, noteSpoken, stepMap, toggleNote, toggleStep } from "./model.ts";
 import { TRACK_NAMES, trackStyle } from "./tracks.ts";
 import { useRoving } from "./useRoving.ts";
 
 export interface CircuitProps {
   summary: Summary;
+  /** The project's scale; null until settings load (then a piano layout). */
+  scale: ScaleSetting | null;
   track: TrackName;
   pattern: number;
   data: PatternData;
@@ -82,7 +87,8 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
   const roving = useRoving(4, 8);
   const first = p.data.settings.firstStep, last = p.data.settings.lastStep;
   const stepAt = (cell: number): number => p.page * 16 + cell + 1;
-  const keyAt = (cell: number): number => p.octave + (cell - 16);
+  const keyAt = (cell: number): number | null => keyboardNote(p.scale, p.octave, cell - 16);
+  const keys = Array.from({ length: 16 }, (_, k) => keyboardNote(p.scale, p.octave, k)).filter((k): k is number => k !== null);
   const selected = p.selectedStep !== null ? notes.get(p.selectedStep) ?? [] : [];
 
   const pressKey = (key: number): void => {
@@ -105,7 +111,8 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
       if ((notes.get(s) ?? []).length) p.onNoteSteps([{ step: s, notes: [] }], `cleared step ${s}`);
     } else if (cell >= 16 && (e.key === "Enter" || e.key === " ")) {
       e.preventDefault();
-      pressKey(keyAt(cell));
+      const key = keyAt(cell);
+      if (key !== null) pressKey(key);
     }
   };
 
@@ -118,7 +125,7 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
         </div>
         <button type="button" className="btn" onClick={() => p.onOctave(Math.max(0, p.octave - 12))} disabled={p.octave <= 0}>Octave ▼</button>
         <button type="button" className="btn" onClick={() => p.onOctave(Math.min(112, p.octave + 12))} disabled={p.octave >= 112}>Octave ▲</button>
-        <span className="hint">Keys {noteName(p.octave)}–{noteName(p.octave + 15)}</span>
+        <span className="hint">{p.scale ? `${SCALE_NAMES[p.scale.type]} · ` : ""}keys {noteName(Math.min(...keys))}–{noteName(Math.max(...keys))}</span>
       </div>
       <div role="grid" aria-label={`${p.track} pattern ${p.pattern}: steps and keyboard`} aria-describedby="note-grid-help" className="grid">
         {[0, 1, 2, 3].map((r) => (
@@ -142,7 +149,16 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
                   </div>
                 );
               }
-              const key = keyAt(cell), held = selected.some((n) => n.note === key);
+              const key = keyAt(cell);
+              if (key === null) {
+                return (
+                  <div role="gridcell" key={cell} style={{ display: "contents" }}>
+                    <button ref={roving.ref(cell)} type="button" className="pad key" tabIndex={roving.tabIndex(cell)} data-gap="true" aria-label="No key here (piano layout)" aria-disabled="true"
+                      onClick={() => roving.setActive(cell)} onKeyDown={(e) => onKeyDown(cell, e)} />
+                  </div>
+                );
+              }
+              const held = selected.some((n) => n.note === key);
               return (
                 <div role="gridcell" key={cell} style={{ display: "contents" }}>
                   <button ref={roving.ref(cell)} type="button" className="pad key" tabIndex={roving.tabIndex(cell)} data-black={isBlackKey(key)} data-root={key % 12 === 0} data-used={usedPitches.has(key)}
@@ -200,3 +216,4 @@ function DrumPads(p: CircuitProps & { data: DrumPatternData }) {
     </>
   );
 }
+

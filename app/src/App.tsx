@@ -2,10 +2,14 @@
 // right. All project state lives in the main process; this keeps only what is on screen and
 // reloads it after every edit.
 import { useCallback, useEffect, useState } from "react";
-import type { DrumStepIn, DrumTrackName, NoteStepIn, SyncRate, TrackName } from "@circuit-desk/core-service";
+import type { Direction, DrumStepIn, DrumTrackName, NoteStepIn, SyncRate, TrackName } from "@circuit-desk/core-service";
 import type { MenuCommand } from "../electron/api.ts";
 import { CircuitView } from "./CircuitView.tsx";
-import { bridge, call, type DrumPatternData, type Listing, type PatternData, type Scenes, type Summary } from "./desk.ts";
+import { bridge, call, type DrumPatternData, type Listing, type PatternData, type Scenes, type Settings, type Summary } from "./desk.ts";
+import { MixerView } from "./MixerView.tsx";
+import { setNoteRoot } from "./model.ts";
+import { ProjectView } from "./ProjectView.tsx";
+import type { SettingsEdit } from "@circuit-desk/ncs";
 import { DrumAutomation, DrumGrid, PianoRoll, type LaneEdit } from "./EditorView.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { Library } from "./Library.tsx";
@@ -21,7 +25,11 @@ import { useKeyboardPlayer, type KeySound } from "./useKeyboardPlayer.ts";
 import type { PackPatchChoice } from "./PackView.tsx";
 import { patchName } from "@circuit-desk/patch";
 
-type View = "circuit" | "editor" | "scenes" | "pack";
+type View = "circuit" | "editor" | "scenes" | "mixer" | "project" | "pack";
+const VIEWS: readonly { id: View; label: string }[] = [
+  { id: "circuit", label: "Circuit" }, { id: "editor", label: "Editor" }, { id: "scenes", label: "Scenes" },
+  { id: "mixer", label: "Mixer" }, { id: "project", label: "Project" }, { id: "pack", label: "Pack" },
+];
 type Firmware = Awaited<ReturnType<typeof call<"firmware">>>;
 const FIRMWARE_KEY = "circuit-desk.firmware";
 function remembered(key: string): string | null { try { return localStorage.getItem(key); } catch { return null; } }
@@ -39,6 +47,7 @@ export function App() {
   const [data, setData] = useState<PatternData | null>(null);
   const [drums, setDrums] = useState<DrumPatternData[]>([]);
   const [scenes, setScenes] = useState<Scenes | null>(null);
+  const [settings, setSettings] = useState<Settings | null>(null);
   const [view, setView] = useState<View>("circuit");
   const [step, setStep] = useState<number | null>(null);
   const [drumSel, setDrumSel] = useState<{ drum: DrumTrackName; step: number } | null>(null);
@@ -49,6 +58,8 @@ export function App() {
   const [version, setVersion] = useState(0);
 
   const fail = (e: unknown): void => setStatus({ text: (e as Error).message, error: true });
+  // Note names on screen are the pitches stored notes sound at: stored + the scale root.
+  setNoteRoot(settings?.scale.root ?? 0);
   const player = usePlayer(projectId, version);
 
   // Firmware the device runs: remembered here, held by the service (validation, MCP).
@@ -120,12 +131,12 @@ export function App() {
     let live = true;
     void (async () => {
       try {
-        const [s, d, sc, ds] = await Promise.all([
+        const [s, d, sc, ds, st] = await Promise.all([
           call("summary", projectId), call("getPattern", projectId, track, pattern), call("getScenes", projectId),
-          Promise.all(DRUM_NAMES.map((n) => call("getPattern", projectId, n, pattern))),
+          Promise.all(DRUM_NAMES.map((n) => call("getPattern", projectId, n, pattern))), call("settings", projectId),
         ]);
         if (!live) return;
-        setSummary(s); setData(d); setScenes(sc); setDrums(ds.filter((x): x is DrumPatternData => x.kind === "drums"));
+        setSummary(s); setData(d); setScenes(sc); setSettings(st); setDrums(ds.filter((x): x is DrumPatternData => x.kind === "drums"));
       } catch (e) { if (live) fail(e); }
     })();
     return () => { live = false; };
@@ -159,6 +170,9 @@ export function App() {
   };
   const onDrumSteps = (drum: DrumTrackName, steps: DrumStepIn[], label: string): void => {
     if (projectId) void edit(label, () => call("setDrumSteps", projectId, drum, pattern, steps));
+  };
+  const onSettingsEdit = (e: SettingsEdit, label: string): void => {
+    if (projectId) void edit(label, () => call("setSettings", projectId, e));
   };
   const onChain = (first: number, last: number): void => {
     if (projectId) void edit(`${track} chain ${first}–${last}`, () => call("setChain", projectId, track, first, last));
@@ -241,7 +255,7 @@ export function App() {
         else if (command === "export-midi") void exportTo("midi");
         else if (command === "export-als") void exportTo("als");
         else if (command === "export-audio") void exportAudio();
-        else if (command === "toggle-view") setView((v) => (v === "circuit" ? "editor" : v === "editor" ? "scenes" : v === "scenes" ? "pack" : "circuit"));
+        else if (command === "toggle-view") setView((v) => VIEWS[(VIEWS.findIndex((x) => x.id === v) + 1) % VIEWS.length]!.id);
         else if (command === "changed") {
           // Claude edited or opened a project (or chose the firmware) through the MCP link.
           setVersion((v) => v + 1);
@@ -267,10 +281,7 @@ export function App() {
         <h1>Circuit Desk</h1>
         <span className="project-name">{summary ? `${summary.name} · ${summary.tempo.value} BPM${summary.edits ? ` · ${summary.edits} edits` : ""}` : "No project"}</span>
         <div role="group" aria-label="View" className="row" style={{ margin: 0 }}>
-          <button type="button" className="btn" aria-pressed={view === "circuit"} onClick={() => setView("circuit")}>Circuit</button>
-          <button type="button" className="btn" aria-pressed={view === "editor"} onClick={() => setView("editor")}>Editor</button>
-          <button type="button" className="btn" aria-pressed={view === "scenes"} onClick={() => setView("scenes")}>Scenes</button>
-          <button type="button" className="btn" aria-pressed={view === "pack"} onClick={() => setView("pack")}>Pack</button>
+          {VIEWS.map((v) => <button key={v.id} type="button" className="btn" aria-pressed={view === v.id} onClick={() => setView(v.id)}>{v.label}</button>)}
         </div>
         <div role="group" aria-label="Transport" className="row" style={{ margin: 0 }}>
           <button type="button" className="btn" aria-pressed={player.playing} disabled={!projectId}
@@ -322,6 +333,8 @@ export function App() {
         <Library items={library} current={current} onOpen={(p) => void open(p)} />
         <main className="workspace" aria-label={`${view[0]!.toUpperCase()}${view.slice(1)} view`}>
           {!summary || !data ? <p className="empty">{projectId ? "Loading…" : "Choose a project in the library, or File › Open Project."}</p>
+            : view === "mixer" ? (settings ? <MixerView settings={settings} muted={player.muted} solo={player.solo} onMute={player.toggleMute} onSolo={player.toggleSolo} onEdit={onSettingsEdit} /> : <p className="empty">Loading…</p>)
+            : view === "project" && projectId ? (settings ? <ProjectView projectId={projectId} version={version} settings={settings} onEdit={onSettingsEdit} /> : <p className="empty">Loading…</p>)
             : view === "pack" && projectId ? <PackView projectId={projectId} version={version} firmware={firmware?.current ?? null} chosen={packChoice} onPatch={choosePackPatch} />
             : view === "scenes" ? (scenes ? (
               <ScenesView scenes={scenes} playing={player.playing && player.playFrom.kind === "scene" ? player.playFrom.n : null} onPlayScene={(n) => player.choosePlayFrom({ kind: "scene", n }, true)}
@@ -329,7 +342,7 @@ export function App() {
                 onScene={(n, chains, label) => { if (projectId) void edit(label, () => call("setScene", projectId, n, chains)); }} />
             ) : <p className="empty">Loading…</p>)
             : view === "circuit" ? (
-              <CircuitView playingPattern={player.playing ? player.heads[TRACK_NAMES.indexOf(track)]?.pattern ?? null : null} onPlayPattern={(n) => player.choosePlayFrom({ kind: "pattern", n }, true)} playStep={playStep(track)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
+              <CircuitView scale={settings?.scale ?? null} playingPattern={player.playing ? player.heads[TRACK_NAMES.indexOf(track)]?.pattern ?? null : null} onPlayPattern={(n) => player.choosePlayFrom({ kind: "pattern", n }, true)} playStep={playStep(track)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
                 onTrack={chooseTrack} onPattern={choosePattern} onSelectStep={setStep} onPage={setPage} onOctave={setOctave} onCurrentNote={setCurrentNote}
                 onNoteSteps={onNoteSteps} onDrumStep={(s, velocity, label) => { if (isDrum(track)) onDrumSteps(track, [{ step: s, velocity }], label); }} />
             ) : (
@@ -359,7 +372,7 @@ export function App() {
         {inspectorData ? (
           <Inspector track={inspectorTrack} pattern={pattern} data={inspectorData} step={inspectorStep} scenes={scenes} currentNote={currentNote}
             onNoteSteps={onNoteSteps} onDrumSteps={(steps, label) => { if (isDrum(inspectorTrack)) onDrumSteps(inspectorTrack, steps, label); }}
-            onSettings={(s: { firstStep?: number; lastStep?: number; syncRate?: SyncRate }) => { if (projectId) void edit("pattern settings", () => call("setPatternSettings", projectId, inspectorTrack, pattern, s)); }} onChain={onChain} />
+            onSettings={(s: { firstStep?: number; lastStep?: number; syncRate?: SyncRate; direction?: Direction }) => { if (projectId) void edit("pattern settings", () => call("setPatternSettings", projectId, inspectorTrack, pattern, s)); }} onChain={onChain} />
         ) : <aside className="panel inspector" aria-label="Inspector" />}
       </div>
       <footer className="statusbar">

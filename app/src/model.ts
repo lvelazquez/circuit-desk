@@ -1,12 +1,24 @@
 // Pure helpers for the window: note names, step edits as service payloads, grid movement.
 import type { NoteOut, NoteStepIn, NoteStepOut } from "@circuit-desk/core-service";
+import { SCALE_INTERVALS, scaleNote, type ScaleSetting } from "@circuit-desk/ncs";
 
 export const STEPS = 32;
 export const MAX_NOTES = 6;
 const NAMES = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"] as const;
 
-/** 60 = C4, as on the Circuit and in Live. */
-export function noteName(n: number): string {
+/**
+ * The project's scale root (0–11). Stored step notes are relative to it and the device plays them
+ * transposed by it, so every name shown for a stored note adds it. Set by the window whenever the
+ * open project's settings load (one project on screen at a time).
+ */
+let noteRoot = 0;
+export function setNoteRoot(root: number): void { noteRoot = ((root % 12) + 12) % 12; }
+/** The root in use, to show or take a stored note as the MIDI pitch it sounds at. */
+export function getNoteRoot(): number { return noteRoot; }
+
+/** The name of the pitch a stored note sounds at; 60 = C4, as on the Circuit and in Live. */
+export function noteName(stored: number): string {
+  const n = stored + noteRoot;
   return `${NAMES[((n % 12) + 12) % 12]}${Math.floor(n / 12) - 1}`;
 }
 
@@ -87,4 +99,19 @@ export function rollRange(pitches: readonly number[], around = 60): number[] {
   return out;
 }
 
-export const isBlackKey = (n: number): boolean => [1, 3, 6, 8, 10].includes(((n % 12) + 12) % 12);
+/** Whether a stored note sounds on a black key (after the root). */
+export const isBlackKey = (stored: number): boolean => [1, 3, 6, 8, 10].includes((((stored + noteRoot) % 12) + 12) % 12);
+
+/**
+ * The stored note of keyboard pad `k` (0–15; 0–7 the top row, 8–15 the bottom row), or null for a
+ * gap in the piano layout. Stored notes are relative to the root, so `octave` is the root's octave.
+ */
+export function keyboardNote(scale: ScaleSetting | null, octave: number, k: number): number | null {
+  const top = k < 8, col = k % 8;
+  if (!scale || scale.type === 15) {
+    const iv = top ? [null, 1, 3, null, 6, 8, 10, null][col]! : [0, 2, 4, 5, 7, 9, 11, 12][col]!;
+    return iv === null ? null : octave + iv;
+  }
+  const n = SCALE_INTERVALS[scale.type]!.length;
+  return scaleNote(scale, octave, (top ? n : 0) + col);
+}
