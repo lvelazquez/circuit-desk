@@ -318,10 +318,10 @@ export function App() {
       <header className="toolbar">
         <h1>Circuit Desk</h1>
         <span className="project-name">{summary ? `${summary.name} · ${summary.tempo.value} BPM${summary.edits ? ` · ${summary.edits} edits` : ""}` : "No project"}</span>
-        <div role="group" aria-label="View" className="row" style={{ margin: 0 }}>
+        <div role="group" aria-label="View" className="row">
           {VIEWS.map((v) => <button key={v.id} type="button" className="btn" aria-pressed={view === v.id} data-tip={`${VIEW_TIPS[v.id]} ⌘1 goes to the next view.`} onClick={() => setView(v.id)}>{v.label}</button>)}
         </div>
-        <div role="group" aria-label="Transport" className="row" style={{ margin: 0 }}>
+        <div role="group" aria-label="Transport" className="row">
           <button type="button" className="btn" aria-pressed={player.playing} disabled={!projectId} data-tip="Play or stop (⌘↩). Plays what the menu beside it says, to the output chosen after it. Edits made while playing are heard at once."
             onClick={() => (player.playing ? player.stop() : void player.play())}>{player.playing ? "■ Stop" : "▶ Play"}</button>
           <label className="visually-hidden" htmlFor="play-from">What plays</label>
@@ -402,7 +402,7 @@ export function App() {
                 {data.kind === "notes" ? <PianoRoll projectId={projectId} version={version} track={track} pattern={pattern} data={data} onNoteSteps={onNoteSteps} onLaneEdit={onLaneEdit} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} />
                   : <p className="hint">Choose a Synth or MIDI track for the piano roll.</p>}
                 <h2 className="visually-hidden">Drums</h2>
-                <div style={{ marginTop: "var(--space-xl)" }}>
+                <div className="stack-gap-xl">
                   <DrumGrid pattern={pattern} drums={drums} selected={drumSel} onSelect={(d, s) => setDrumSel({ drum: d, step: s })} onDrumSteps={onDrumSteps} />
                   <DrumAutomation projectId={projectId} version={version} pattern={pattern} onLaneEdit={onLaneEdit} />
                 </div>

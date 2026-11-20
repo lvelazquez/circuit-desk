@@ -2,6 +2,7 @@
 // service runs here, in the main process, and the window reaches it only through the allowlisted
 // bridge in api.ts. Set CIRCUIT_DESK_DEV_URL to load the Vite dev server instead.
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, session, shell, type MenuItemConstructorOptions } from "electron";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dispatch, isInside, ProjectService, serveSocket } from "@circuit-desk/core-service";
@@ -85,9 +86,22 @@ function menu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+/**
+ * The window's colour before the page paints: the --color-surface-body token, read from the built
+ * stylesheet so it has one source (tokens.css). Without it the window keeps Electron's default.
+ */
+function bodyColour(): { backgroundColor?: string } {
+  try {
+    const assets = path.join(DIST, "assets");
+    const css = readdirSync(assets).find((f) => f.endsWith(".css"));
+    const m = css ? /--color-surface-body:\s*(#[0-9a-f]{3,8})/i.exec(readFileSync(path.join(assets, css), "utf8")) : null;
+    return m?.[1] ? { backgroundColor: m[1] } : {};
+  } catch { return {}; }
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 1360, height: 900, minWidth: 900, minHeight: 640, title: "Circuit Desk", backgroundColor: "#101114",
+    width: 1360, height: 900, minWidth: 900, minHeight: 640, title: "Circuit Desk", ...bodyColour(),
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(here, "preload.cjs") },
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));

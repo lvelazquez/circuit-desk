@@ -20,7 +20,6 @@ interface Drag { mode: "move" | "resize"; step: number; pitch: number; x0: numbe
 /** Notes are drawn at least this opaque, reaching full at velocity 127, so soft notes stay visible. */
 /** Drum 1–4 are tracks 4–7 in the playhead store. */
 const DRUM_TRACKS = [4, 5, 6, 7] as const;
-const VELOCITY_ALPHA_FLOOR = 0.45;
 
 export function PianoRoll({ projectId, version, track, pattern, data, onNoteSteps, onSelectStep, onLaneEdit }: {
   projectId: string | null; version: number; track: TrackName; pattern: number; data: NotePatternData;
@@ -147,7 +146,7 @@ export function PianoRoll({ projectId, version, track, pattern, data, onNoteStep
           ))}
           {all.map(shown).map((n) => (
             <div key={`${n.step}-${n.note}`} className="roll-note" data-selected={n.step === cursor.step && n.note === cursor.pitch}
-              style={vars({ x: n.step - 1 + n.micro / 6, y: top - n.note, w: n.gate / 6, alpha: VELOCITY_ALPHA_FLOOR + ((1 - VELOCITY_ALPHA_FLOOR) * n.velocity) / 127 })} />
+              style={vars({ x: n.step - 1 + n.micro / 6, y: top - n.note, w: n.gate / 6, vel: n.velocity / 127 })} />
           ))}
           {playStep !== null && <div className="roll-playhead" style={vars({ x: playStep - 1 })} />}
           <div className="roll-cursor" style={vars({ x: cursor.step - 1, y: top - cursor.pitch })} />
@@ -182,13 +181,13 @@ export function DrumGrid({ pattern, drums, selected, onSelect, onDrumSteps }: {
           const d = drums[r];
           const hits = new Map((d?.steps ?? []).map((s) => [s.step, s]));
           return (
-            <div role="row" key={name} style={{ display: "contents", ...trackStyle(name) }}>
+            <div role="row" key={name} className="contents" style={trackStyle(name)}>
               <div role="rowheader" className="drum-name" style={trackStyle(name)}>{name}</div>
               {Array.from({ length: STEPS }, (_, k) => {
                 const cell = r * STEPS + k, s = k + 1, h = hits.get(s);
                 const toggle = (): void => { onSelect(name, s); onDrumSteps(name, [{ step: s, velocity: h ? 0 : 100 }], `${name} step ${s}`); };
                 return (
-                  <div role="gridcell" key={k} style={{ display: "contents" }}>
+                  <div role="gridcell" key={k} className="contents">
                     <button ref={roving.ref(cell)} type="button" className="drum-cell" style={trackStyle(name)} tabIndex={roving.tabIndex(cell)} data-tip={`${name} step ${s}: click to add or remove a hit; the Inspector edits it. A number means extra micro-step hits.`}
                       data-on={!!h} data-beat={k > 0 && k % 4 === 0} data-selected={selected?.drum === name && selected.step === s} data-playing={playSteps[r] === s}
                       aria-pressed={!!h} aria-label={`${name} step ${s}: ${h ? `velocity ${h.velocity}` : "empty"}`}

@@ -178,7 +178,26 @@ async function run(): Promise<void> {
   await wait(200);
   const reduced = await js<string>(`getComputedStyle(document.querySelector('.grid .pad')).transitionDuration`);
   check("pads animate normally and not under reduced motion", motion.includes("0.09s") && reduced.split(",").every((d) => d.trim() === "0s"), `${motion} → ${reduced}`);
+  // Every button, field and select is at least 24 px tall (WCAG 2.5.8).
+  const small = await js<string[]>(`[...document.querySelectorAll('.app button, .app select, .app input:not([type=range]):not([type=checkbox])')]
+    .filter(e => e.offsetParent && e.getBoundingClientRect().height < 24).map(e => (e.getAttribute('aria-label') || e.textContent.trim() || e.tagName).slice(0, 30) + ' ' + Math.round(e.getBoundingClientRect().height))`);
+  check("every control is at least 24 px tall", small.length === 0, small.slice(0, 8).join(" | "));
+  // Focus, selection and the playhead look different: an outline outside, a frame with a corner notch, a top bar.
+  const states = await js<{ focus: string; selected: string; notch: string }>(`(() => {
+    const sel = document.querySelector('.grid .pad[data-selected=true]');
+    const rule = [...document.styleSheets].flatMap(sh => [...sh.cssRules]).find(r => r.selectorText === ':focus-visible');
+    return { focus: rule ? rule.cssText : 'none', selected: sel ? getComputedStyle(sel).borderTopWidth : 'none', notch: sel ? getComputedStyle(sel, '::before').borderRightWidth : 'none' }; })()`);
+  check("focus is an outline outside, selection a frame with a corner notch", /solid/.test(states.focus) && /outline-offset: var\(--size-focus-ring\)/.test(states.focus) && states.selected === "2px" && states.notch === "8px", JSON.stringify(states));
   await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+  // Hover enters with Medium/SmoothOut and leaves with the shorter Fast/SmoothIn.
+  const saveAt = await js<{ x: number; y: number }>(`(() => { const r = [...document.querySelectorAll('button')].find(b => b.textContent === 'Save a copy').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+  const restT = await js<string>(`(() => { const b = [...document.querySelectorAll('button')].find(b => b.textContent === 'Save a copy'); const c = getComputedStyle(b); return c.transitionDuration + ' ' + c.transitionTimingFunction; })()`);
+  wc.sendInputEvent({ type: "mouseMove", x: saveAt.x, y: saveAt.y });
+  await wait(120);
+  const hoverT = await js<string>(`(() => { const b = [...document.querySelectorAll('button')].find(b => b.textContent === 'Save a copy'); const c = getComputedStyle(b); return c.transitionDuration + ' ' + c.transitionTimingFunction; })()`);
+  wc.sendInputEvent({ type: "mouseMove", x: 4, y: 4 });
+  check("buttons enter hover with Medium/SmoothOut and leave with the shorter Fast/SmoothIn",
+    restT === "0.09s cubic-bezier(0.4, 0, 1, 1)" && hoverT === "0.16s cubic-bezier(0.2, 0, 0, 1)", `rest ${restT}, hover ${hoverT}`);
 
   // Tooltips: every control in every view has one; hover shows it after the delay, keyboard focus
   // at once, Escape hides it; it enters with Fast/SmoothOut and without motion under reduced motion.
@@ -211,6 +230,13 @@ async function run(): Promise<void> {
   check("the tooltip enters with Fast/SmoothOut", timing === "90 cubic-bezier(0.2, 0, 0, 1)", timing);
   wc.sendInputEvent({ type: "mouseMove", x: 4, y: 4 });
   check("leaving the control hides it", await until(`${tipEl}.hidden`));
+  // Near the window's left edge the tip is kept on screen, and still grows from its trigger.
+  const searchAt = await js<{ x: number; y: number }>(`(() => { const r = document.querySelector('.library input[type=search]').getBoundingClientRect(); return { x: Math.round(r.x + 6), y: Math.round(r.y + r.height / 2) }; })()`);
+  wc.sendInputEvent({ type: "mouseMove", x: searchAt.x, y: searchAt.y });
+  const edgeTip = await until(`!${tipEl}.hidden`, 2000);
+  const origin = await js<{ origin: string; offset: string }>(`(() => { const t = document.getElementById('app-tooltip'); return { origin: getComputedStyle(t).transformOrigin, offset: t.style.getPropertyValue('--tip-origin-x') }; })()`);
+  wc.sendInputEvent({ type: "mouseMove", x: 4, y: 4 });
+  check("a tooltip kept on screen still grows from its trigger", edgeTip && origin.offset !== "" && origin.offset !== "0px" && !origin.origin.startsWith("50%"), JSON.stringify(origin));
   // Focus events only fire in a window that has the system focus.
   win.focus(); wc.focus();
   await wait(200);
@@ -375,6 +401,8 @@ async function run(): Promise<void> {
   await js(`[...document.querySelectorAll('button')].find(b => b.textContent.includes('Play')).click()`);
   check("Play sends the pattern's notes with timestamps", await until(`window.__sent.some(m => m.bytes[0] === 0x90 && m.bytes[1] === 60 && m.at > 0)`), JSON.stringify(await js(`window.__sent.slice(0, 3)`)));
   check("the playhead shows on the grid", await until(`!!document.querySelector('.pad[data-playing=true]')`));
+  const playBar = await js<string>(`getComputedStyle(document.querySelector('.pad[data-playing=true]')).boxShadow`);
+  check("the playhead is a bar along the top of the cell, not a ring", /inset/.test(playBar) && /0px 3px 0px 0px/.test(playBar), playBar);
   check("Synth 1's macro lane goes to the Circuit as CC 80 on channel 1, with timestamps", await until(`window.__sent.some(m => m.bytes[0] === 0xb0 && m.bytes[1] === 80 && m.at > 0)`),
     JSON.stringify(await js(`window.__sent.filter(m => (m.bytes[0] & 0xf0) === 0xb0).slice(0, 4)`)));
   check("Drum 1's pan lane goes as CC 77 on channel 10", await until(`window.__sent.some(m => m.bytes[0] === 0xb9 && m.bytes[1] === 77 && m.bytes[2] === 0)`));

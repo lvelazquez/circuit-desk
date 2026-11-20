@@ -9,8 +9,11 @@
   --color-surface-pad: #2a2d35;
   --color-surface-pad-hover: #343843;
   --color-surface-key-black: #1b1d22;
+  /* Dividers and quiet frames (not a control's edge). */
   --color-border-subtle: #2c3038;
   --color-border-strong: #4a4f5c;
+  /* A control's edge (inputs, buttons, pads): at least 3:1 against body, panel and raised (tokens.test.ts). */
+  --color-border-control: #6b7080;
   --color-text-primary: #eceef3;
   --color-text-secondary: #a8adbb;
   --color-text-disabled: #6b7080;
@@ -19,6 +22,9 @@
   --color-danger: #ff6b6b;
   --color-outside-range: #0c0d10;
   --color-playhead: #ffffff;
+  /* Selected cell: a light frame on dark cells, a dark one on lit cells, plus a corner notch. */
+  --color-selected: #eceef3;
+  --color-selected-on-accent: #101114;
 
   /* Track colours (inspired by the device's track buttons; not Novation's palette). */
   --color-track-synth1: #a78bfa;
@@ -66,7 +72,7 @@
   --size-project-name: 160px;
   --size-strip: 150px;
   --size-fx-panel: 230px;
-  --size-slider-value: 36px;
+  --size-slider-value: 56px;
   --size-text-input: 260px;
   --size-tooltip: 280px;
   /* Room a tooltip needs below its trigger before it flips above. */
@@ -77,6 +83,21 @@
   --radius-pad: 6px;
   --radius-panel: 10px;
   --radius-control: 4px;
+  --radius-round: 50%;
+
+  /* Control heights: every button, input and select is at least the small one (WCAG 2.5.8: 24px). */
+  --size-control: 28px;
+  --size-control-small: 24px;
+  /* The playhead: a bar along the top of the playing cell (not a ring, so it differs from selection and focus). */
+  --size-playhead: 3px;
+  /* The selected cell's corner notch. */
+  --size-selected-notch: 8px;
+  /* Comfortable reading width for help text. */
+  --size-measure: 72ch;
+
+  /* Stacking. */
+  --z-sticky: 2;
+  --z-overlay: 100;
 
   /* Type. */
   --font-family-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
@@ -99,12 +120,17 @@
   --opacity-muted: 0.5;
   --opacity-soft: 0.7;
   --opacity-playhead: 0.12;
+  /* A note's opacity at velocity 0; full velocity is opaque. */
+  --opacity-velocity-floor: 0.45;
 
-  /* Motion: duration and easing are used in named pairs, e.g. Fast/SmoothOut. */
+  /* Motion: duration and easing are used in named pairs. Entries use Medium/SmoothOut, exits the
+     shorter Fast/SmoothIn (exits are always shorter than entries). */
   --motion-duration-fast: 90ms;
   --motion-duration-medium: 160ms;
   --motion-easing-smooth-out: cubic-bezier(0.2, 0, 0, 1);
   --motion-easing-smooth-in: cubic-bezier(0.4, 0, 1, 1);
+  /* An anchored surface (tooltip) starts this much smaller and grows from its trigger. */
+  --motion-scale-enter: 0.96;
   /* How long the pointer rests on a control before its tooltip shows (keyboard focus shows it at once). Not motion: kept under reduced motion. */
   --motion-delay-tooltip: 500ms;
 }

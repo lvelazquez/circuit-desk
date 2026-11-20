@@ -1,6 +1,6 @@
 // Scenes: the 16 scenes with what each plays, the scene chain, and storing the current chains in a
 // scene. Track order inside a scene is assumed (see core-service getScenes), so the view says so.
-import { useState, type CSSProperties } from "react";
+import { useState } from "react";
 import type { TrackName } from "@circuit-desk/core-service";
 import type { Scenes } from "./desk.ts";
 import { TRACK_NAMES, trackStyle } from "./tracks.ts";
@@ -22,7 +22,7 @@ export function ScenesView({ scenes, onSceneChain, onScene, playing, onPlayScene
   const scene = scenes.scenes[selected - 1];
   const inChain = (n: number): boolean => n >= scenes.sceneChain.first && n <= scenes.sceneChain.last;
   return (
-    <section aria-label="Scenes" style={{ "--track": "var(--color-scene)" } as CSSProperties}>
+    <section aria-label="Scenes" className="scene-tint">
       <div role="radiogroup" aria-label="Scene" className="grid">
         {scenes.scenes.map((s) => (
           <button key={s.scene} type="button" role="radio" aria-checked={s.scene === selected} tabIndex={s.scene === selected ? 0 : -1}
@@ -41,7 +41,7 @@ export function ScenesView({ scenes, onSceneChain, onScene, playing, onPlayScene
           </button>
         ))}
       </div>
-      <div className="row" style={{ marginTop: "var(--space-md)" }}>
+      <div className="row stack-gap-md">
         <span className="hint">Scene chain (played in turn):</span>
         <NumberField tip="The first scene of the scene chain: scenes From–To play in turn when Play is set to Scene chain." label="From scene" value={scenes.sceneChain.first} min={1} max={16} onCommit={(v) => onSceneChain(v, Math.max(v, scenes.sceneChain.last))} />
         <NumberField tip="The last scene of the scene chain." label="To scene" value={scenes.sceneChain.last} min={1} max={16} onCommit={(v) => onSceneChain(Math.min(v, scenes.sceneChain.first), v)} />

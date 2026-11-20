@@ -5,22 +5,27 @@
 // - linked to its element with aria-describedby while shown, so screen readers announce it.
 // The tip grows from its trigger (transform-origin on the trigger's side) and leaves at once:
 // entries are longer than exits. Reduced motion turns the entry off (the motion tokens go to 0).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 export const TIP_ID = "app-tooltip";
 
-interface Tip { text: string; x: number; y: number; side: "below" | "above" }
+/** `originX`: the trigger's centre relative to the tip's, so the tip grows from its trigger even when kept on screen. */
+interface Tip { text: string; x: number; y: number; side: "below" | "above"; originX: number }
 
-function cssNumber(name: string, fallback: number): number {
+/** Focus that follows a pointer press this soon is the pointer's, not the keyboard's (no tooltip). */
+const PRESS_FOCUS_MS = 400;
+
+/** A size token in px (tokens.css defines every name used here). */
+function cssNumber(name: string): number {
   const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
-  return Number.isFinite(v) ? v : fallback;
+  return Number.isFinite(v) ? v : 0;
 }
 
 /** A time token in ms. The production CSS build may write 500ms as .5s, so both units are read. */
-function cssMs(name: string, fallback: number): number {
+function cssMs(name: string): number {
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const v = parseFloat(raw);
-  if (!Number.isFinite(v)) return fallback;
+  if (!Number.isFinite(v)) return 0;
   return /ms$/.test(raw) ? v : /s$/.test(raw) ? v * 1000 : v;
 }
 
@@ -46,10 +51,11 @@ export function Tooltips() {
       target = el;
       describe(el, true);
       const r = el.getBoundingClientRect();
-      const half = cssNumber("--size-tooltip", 280) / 2, margin = cssNumber("--space-sm", 8), gap = cssNumber("--space-xs", 4);
-      const x = Math.min(Math.max(r.left + r.width / 2, half + margin), window.innerWidth - half - margin);
-      const below = r.bottom + gap + cssNumber("--size-tooltip-room", 96) < window.innerHeight;
-      setTip({ text, x, y: below ? r.bottom + gap : r.top - gap, side: below ? "below" : "above" });
+      const half = cssNumber("--size-tooltip") / 2, margin = cssNumber("--space-sm"), gap = cssNumber("--space-xs");
+      const centre = r.left + r.width / 2;
+      const x = Math.min(Math.max(centre, half + margin), window.innerWidth - half - margin);
+      const below = r.bottom + gap + cssNumber("--size-tooltip-room") < window.innerHeight;
+      setTip({ text, x, y: below ? r.bottom + gap : r.top - gap, side: below ? "below" : "above", originX: centre - x });
     };
     const hide = (): void => {
       window.clearTimeout(timer);
@@ -64,7 +70,7 @@ export function Tooltips() {
       const el = tipOf(e);
       if (el === target) return;
       if (target || timer) hide();
-      if (el) timer = window.setTimeout(() => { timer = 0; show(el); }, cssMs("--motion-delay-tooltip", 500));
+      if (el) timer = window.setTimeout(() => { timer = 0; show(el); }, cssMs("--motion-delay-tooltip"));
     };
     const onOut = (e: PointerEvent): void => {
       const to = e.relatedTarget as Node | null;
@@ -73,7 +79,7 @@ export function Tooltips() {
     };
     const onFocus = (e: FocusEvent): void => {
       const el = tipOf(e);
-      if (!el || performance.now() - pressed < 400) return;
+      if (!el || performance.now() - pressed < PRESS_FOCUS_MS) return;
       hide();
       show(el);
     };
@@ -105,7 +111,7 @@ export function Tooltips() {
   return (
     <div ref={node} id={TIP_ID} role="tooltip" className="tooltip" hidden={!tip} data-side={tip?.side}
       key={tip ? `${tip.x},${tip.y},${tip.text}` : "none"}
-      style={tip ? { left: tip.x, top: tip.y } : undefined}>
+      style={tip ? ({ left: tip.x, top: tip.y, "--tip-origin-x": `${tip.originX}px` } as CSSProperties) : undefined}>
       {tip?.text}
     </div>
   );

@@ -1,7 +1,7 @@
 // The project's pack: its 64 drum samples (click or Enter to hear one) and which drum uses which,
 // and its synth patch banks (click or Enter to hear a patch through the Nova preview; with Keys on,
 // the chosen patch plays from the computer keyboard).
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import type { FirmwareProfile } from "@circuit-desk/core-service";
 import { audition } from "./audio.ts";
 import { call } from "./desk.ts";
@@ -40,7 +40,7 @@ export function PackView({ projectId, version, firmware, chosen, onPatch, onLoad
   const play = async (i: number): Promise<void> => { setLast(i); if (!(await audition(projectId, i))) setError(`Sample ${i} could not be played`); };
   const ownSynthLabel = firmware?.circuitHacks ? "MIDI own synth" : "CIRCUIT-HACKS data, kept";
   return (
-    <section aria-label="Pack" style={{ "--track": "var(--color-scene)" } as CSSProperties}>
+    <section aria-label="Pack" className="scene-tint">
       <h2 className="section-title">Samples · {pack.pack.split("/").slice(-1)[0]}</h2>
       <div className="sample-grid" role="list" aria-label="Pack samples">
         {pack.samples.map((s) => {
