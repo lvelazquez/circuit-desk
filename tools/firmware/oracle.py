@@ -14,6 +14,15 @@ the firmware image, so `tables` supplies them: {address: [24-bit words]}. Addres
     audio, info = o.render([(0, bytes([0x90, 60, 100])), (300, bytes([0x80, 60, 0]))], blocks=600)
 
 `audio` is a list of signed 24-bit ints, interleaved left/right, 48 kHz (32 frames per block).
+
+`Oracle(tables, boot=True)` adds what the real ARM does at boot and project load, which the plain session
+leaves out (see docs/firmware-boot.md):
+  * the mixer flush 0x08028EF2 and the settings flush 0x08028FD6 (track levels and pans, master level,
+    output level): without them the output ring stays silent;
+  * the boot writes of 0x08029710 and 0x0802108C (gain-law tables, voice init), traced by boot_trace.py,
+    minus the wavetable frame uploads (the frames come from device storage, which is not available);
+  * the zone commands 2-5 run through the DSP's own dispatcher (P:$1C53), so core 0 builds the basic
+    waveform tables in its external Y, and core 1's stand-in serves unloaded addresses from there (C1FROMY).
 """
 from __future__ import annotations
 import os, struct, subprocess, sys, tempfile
@@ -27,6 +36,11 @@ sys.path.insert(0, str(HACKS / "tools"))
 import dsp_session as D  # noqa: E402
 
 FRAMES_PER_BLOCK = 32
+MIXER_FLUSH = 0x08028EF2      # group 0x20: X:$52..$59 track levels/pans, X:$72 master, X:$D1..$DD, ...
+SETTINGS_FLUSH = 0x08028FD6   # group 0x21: X:$CF/$D0, Y:$10D..$110, X:$DE output level
+ZONE_STUB = 0x7010            # jsr $1C53 ; jset #22,y:$2c,* ; jclr #23,y:$2c,*  (loop until Y:$2C = $800000, "done")
+ZONE_STUB_CODE = [0x0BF080, 0x001C53, 0x0A2CF6, ZONE_STUB, 0x0A2CD7, ZONE_STUB]
+ZONE_STUB_END = ZONE_STUB + 6
 
 
 def pack_words(words: list[int]) -> bytes:
@@ -34,12 +48,38 @@ def pack_words(words: list[int]) -> bytes:
 
 
 class Oracle:
-    def __init__(self, tables: dict[int, list[int]] | None = None, firmware: Path | None = None):
+    def __init__(self, tables: dict[int, list[int]] | None = None, firmware: Path | None = None, boot: bool = False):
         self.tables = tables or {}
         self.img = (firmware or HACKS / "stock" / "circuittracks-firmware-4486-STOCK.bin").read_bytes()
+        self.boot = boot
+        self._boot_writes: list[tuple] | None = None
 
     def session(self) -> D.Session:
-        return D.Session(self.img)
+        s = D.Session(self.img)
+        if self.boot:
+            s.capture("mixer", MIXER_FLUSH)
+            s.capture("settings", SETTINGS_FLUSH)
+        return s
+
+    def boot_script(self) -> tuple[list[str], int]:
+        """dsptool lines replaying the boot writes, running each zone command 2-5 to completion; and the zone count."""
+        if self._boot_writes is None:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            import boot_trace
+            self._boot_writes = boot_trace.boot_writes(self.img)
+        L = ["P %x %s" % (ZONE_STUB, " ".join("%06x" % x for x in ZONE_STUB_CODE))]
+        zones = 0
+        for _core, sp, a, v in self._boot_writes:
+            if sp == "x" and (0xC00 <= a < 0xD00 or a == 0x12):
+                continue                                   # wavetable frame data and SHI mode switches
+            if sp == "y" and a == 0x2C:
+                if not 2 <= v & 0xF <= 5:
+                    continue                               # cmd 0 = a wavetable frame (no data here)
+                L += [f"Y 2c {v & 0xFFFFFF:06x}", f"PC {ZONE_STUB:x}", f"STOP {ZONE_STUB_END:x}", "RUN", "DUMPY 2c 1"]
+                zones += 1
+                continue
+            L.append(f"{sp.upper()} {a:x} {v & 0xFFFFFF:06x}")
+        return L, zones
 
     def render(self, timeline: list[tuple[int, bytes]], blocks: int, setup: list[bytes] | None = None,
                sess: D.Session | None = None, log_requests: bool = False,
@@ -67,6 +107,10 @@ class Oracle:
             open(pb, "wb").write(prog)
             L = [f"LOADP {pb} 0", "MAX 400000000", "PC 107", "STOP 25f3", "RUN"]
             L += s._mem(s.init_writes) + ["PC 25f3", "STOP 113", "RUN"]
+            zones = 0
+            if self.boot:
+                bl, zones = self.boot_script()
+                L += bl + ["C1FROMY ON"]
             for _, w in s.events[:pre]:                 # the initial full parameter dump first, then the setup messages
                 L += s._mem(w)
             for i, (base, words) in enumerate(sorted(self.tables.items())):
@@ -97,10 +141,14 @@ class Oracle:
             stats = [l for l in out.splitlines() if l.startswith("C1 served")]
             stat = stats[-1] if stats else ""
             info = {"blocks": blocks, "frames": len(audio) // 2, "c1": stat}
+            got_all = [l for l in out.splitlines() if l[:1] in "XYP" and ":" in l]
+            if zones:
+                info["zone_status"] = [int(l.split(":", 1)[1].split()[0], 16) for l in got_all[:zones]]   # $800000 = done
+                got_all = got_all[zones:]
             if watch and os.path.exists(watch_path):
                 info["watch"] = [(int(l[0], 16), l[1], l[2], int(l[3], 16)) for l in (x.split() for x in open(watch_path).read().split("\n") if x)]
             if dumps:
-                got = [[int(x, 16) for x in l.split(":", 1)[1].split()] for l in out.splitlines() if l[:1] in "XYP" and ":" in l]
+                got = [[int(x, 16) for x in l.split(":", 1)[1].split()] for l in got_all]
                 per = len(dumps)
                 info["dumps"] = [got[i:i + per] for i in range(0, len(got), per)]
             if log_requests and os.path.exists(log_path):
