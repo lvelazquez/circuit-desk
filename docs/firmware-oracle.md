@@ -65,3 +65,5 @@ node tools/export-params.ts "$HOME/Circuit Desk/Firmware-derived/params.json"
 cd ~/"Personal Repo"/circuit-hacks-rc && .venv/bin/python ~/"Personal Repo"/circuit-desk/tools/firmware/sweep.py --synth 0
 node tools/sweep-report.ts ~/"Circuit Desk"/Firmware-derived/sweep-synth1.json report.md
 ```
+
+Boot-time DSP setup, the wavetable source and the fix for the silent master: see [firmware-boot.md](firmware-boot.md).
