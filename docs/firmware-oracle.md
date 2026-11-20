@@ -11,7 +11,7 @@ Status 2026-11-19. Everything here runs on your own copy of the official firmwar
 | Parameter sweep | `tools/firmware/sweep.py` | Works. Sends every parameter's full range through the stock ARM code and records the words written to the DSP, when the parameter is set and when a note starts. All 298 Synth 1 parameters take about 16 minutes. |
 | Sweep report | `tools/sweep-report.ts` | Works. Classifies each moving word: linear, stepped, monotonic or geometric. |
 | Core-1 stand-in | `tools/firmware/dsptool-c1.patch`, `dsp56kEmu-c1hook.patch` | Serves core 0's table requests. See "How the stand-in works". |
-| Audio oracle | `tools/firmware/oracle.py` | Runs, but renders silence. See "The open blocker". |
+| Audio oracle | `tools/firmware/oracle.py` | Oscillator and effects chain run; the final mix to the output ring is still silent. See "Where the oracle stands". |
 
 Python is used for the sweep and the oracle because they drive `unicorn` and `dsptool` from the circuit-hacks-rc clone. The report and analysis are TypeScript.
 
@@ -37,19 +37,25 @@ The patched `dsptool` does the same job: when core 0 writes the end pointer, eve
 - `dsp56kEmu` runs a whole `DO` loop in one interpreter step, so a program-counter hook on the wait routine never fires; the hook is on memory writes instead.
 - Core 0 also uses external memory above `$80000` (delay and reverb buffers), so the emulator's address space is enlarged to 0x200000 words.
 
-## The open blocker: silent output
+## Where the oracle stands (updated 2026-11-20)
 
-With an ideal saw ramp supplied at `$173000` (values) and `$174000` (slopes, set to zero), core 0 requests and receives its table words (224 entries in the first block, then 384 per block, none missing for oscillator 1), the voice phase advances, and the envelope ramps. But the output ring is zero, and so is every intermediate buffer I looked at (`X:$2DF0`, `$2E10`, `$2E50`, `$2E70`).
+Fixed since the first write-up, in order of discovery:
 
-Ruled out: reading the wrong space (the ring is in X, now read correctly), a missing parameter dump (replayed first), track volume and pan (CC 7 and 10 changed nothing).
+1. **Served words must be visible from both buses.** After the wait, core 0 reads the results with `y:(r5)+`, while it queued the addresses with `x:(r1)+`. The shared window is one RAM seen from both buses, so the stand-in now writes each result to the X and the Y view. This is what made the oscillator produce samples at all.
+2. **The serve trigger is the end-pointer write, not a read.** Reads of the list bypass `Memory::get` after the first block, so serving on read only worked once.
+3. **The saw is read at several band-limited levels.** The table base steps down by `0x2000` as the note ages (`$173000`, `$171000`, `$16F000`, …), so tables must be supplied for a run of levels, each a value table with a second table at `+$1000`. With 24 levels supplied the oscillator keeps sounding for the whole 400-block test.
+4. **The output ring is in X memory** at `$1000` (write pointer `Y:$FFD`), not Y.
 
-Next steps, in order:
+What works now: the oscillator writes a real saw into its scratch buffer at `Y:$A01…`, and the per-synth effects chain (distortion, EQ, chorus) carries it: `X:$2DF0` grows to about 0.18 of full scale over a few hundred blocks.
 
-1. Watch writes to the voice bus. Each oscillator batch ends in `a,y:(r7)+n7` inside the per-voice routine at `P:$77F`; find where the first non-zero oscillator sample lands, using `dsptool`'s `WATCH` on candidate buffers.
-2. Check the table format. Two tables are requested (values and `+$1000`); the values may need a different scaling or sign convention, or the second table may not be a slope.
-3. Check the mixer and master state the ARM sets from a project (track level, master volume at `X:$DE`), which a bare RAM dump may leave at zero.
+**Still silent:** the master section that sums the track buses into the output ring (`X:$2C00…`, `X:$2E10…`) stays at zero, and so do its gain arrays (`X:$2EB0`, `X:$2EF0`, `X:$1B32…`). Track volume (CC 7) and pan (CC 10) do not change them. Ruled out as the cause: the table format, the parameter dump, the ring address.
 
-If the oscillator path can't be made to sound within a day or two of this, the fallback in the plan is unchanged: curves from the sweep plus ear and recordings for the rest.
+Next steps:
+
+1. Watch every writer of `X:$2C00–$2CFF` and `X:$2EB0–$2EFF` to learn which routine fills the master gain arrays and what it waits for. The buffers at `$2EB0/$2EF0` are inputs of the reverb/delay returns (`P:$CB8`), so the dry path may need a different trigger.
+2. Check the mixer parameters the ARM sends when a project loads (track levels, sends), which a bare RAM dump may not include; the sweep tool can find the CC or NRPN that moves them.
+3. Supply a sine for wave 0 and the second oscillator's zone (`$100000…`, `$102000…`), which is still all zeros.
+4. Once the ring sounds, compare against `curves.ts`: render each swept parameter and fit hertz and seconds.
 
 ## Running it
 

@@ -43,7 +43,8 @@ class Oracle:
 
     def render(self, timeline: list[tuple[int, bytes]], blocks: int, setup: list[bytes] | None = None,
                sess: D.Session | None = None, log_requests: bool = False,
-               dumps: tuple[tuple[str, int, int], ...] = ()) -> tuple[list[int], dict]:
+               dumps: tuple[tuple[str, int, int], ...] = (), watch: tuple[tuple[str, int, int], ...] = (),
+               watch_from_block: int = 0) -> tuple[list[int], dict]:
         """Plays `setup` messages before the first block, then each (block, message) of `timeline` at its block.
 
         Messages go through the stock ARM MIDI handler, so everything a real MIDI message does happens
@@ -76,7 +77,11 @@ class Oracle:
                   "C1 ON", f"AUDIO {audio_path}"]
             if log_requests:
                 L.append(f"C1LOG {log_path}")
+            watch_path = os.path.join(work, "watch.log")
             for b in range(blocks):
+                if watch and b == watch_from_block:
+                    L.append(f"WATCHFILE {watch_path}")
+                    L += [f"WATCH {sp.upper()} {a:x} {n}" for sp, a, n in watch]
                 for w in by_block.get(b, []):
                     L += s._mem(w)
                 L += [f"PC {D.STUB:x}", f"STOP {D.STUB + 2:x}", "RUN", "EMIT"]
@@ -92,6 +97,8 @@ class Oracle:
             stats = [l for l in out.splitlines() if l.startswith("C1 served")]
             stat = stats[-1] if stats else ""
             info = {"blocks": blocks, "frames": len(audio) // 2, "c1": stat}
+            if watch and os.path.exists(watch_path):
+                info["watch"] = [(int(l[0], 16), l[1], l[2], int(l[3], 16)) for l in (x.split() for x in open(watch_path).read().split("\n") if x)]
             if dumps:
                 got = [[int(x, 16) for x in l.split(":", 1)[1].split()] for l in out.splitlines() if l[:1] in "XYP" and ":" in l]
                 per = len(dumps)
