@@ -20,6 +20,7 @@
     "app:midi-probe": "npm run app:build && electron app/scripts/midi-probe.ts",
     "app:midi-record": "npm run app:build && electron app/scripts/midi-record.ts",
     "app:device-dump": "electron app/scripts/device-dump.ts",
+    "app:device-transfer": "electron app/scripts/device-transfer.ts",
     "app:device-record": "electron app/scripts/device-record.ts",
     "app:device-smoke": "node tools/device-smoke.ts",
     "analyse-recording": "node tools/analyse-recording.ts",
