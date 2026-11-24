@@ -24,7 +24,8 @@ void app.whenReady().then(async () => {
     return { names, all: [...a.inputs.values()].map(i => i.name) };
   })`) as { names: string[]; all: string[] };
   if (!inputs.names.length) { console.log(`no MIDI input matching "${match}"; inputs: ${inputs.all.join(", ") || "none"}`); app.exit(1); return; }
-  console.log(`recording ${inputs.names.join(", ")} for ${seconds} s: press Play on the device now`);
+  console.log(`listening to ${inputs.names.join(", ")}: press Play on the device; recording starts at the first note and lasts ${seconds} s`);
+  for (let i = 0; i < 6000; i++) { if (await wc.executeJavaScript("window.__rec.some(m => (m.bytes[0] & 0xf0) === 0x90)") as boolean) break; await wait(100); }
   await wait(seconds * 1000);
   const rec = await wc.executeJavaScript("window.__rec") as { t: number; bytes: number[] }[];
   writeFileSync(out, JSON.stringify(rec));
