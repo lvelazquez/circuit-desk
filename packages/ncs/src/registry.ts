@@ -40,7 +40,7 @@ export const SESSION_FIELDS: readonly Field[] = [
   { id: "drumGap", offset: L.DRUM_GAP, size: L.DRUM_GAP_N, status: "unknown", evidence: "NOTAS session map: '8 B between blocks (with data)'" },
   { id: "patterns.midi", offset: L.MIDI0, size: 16 * L.PAT, status: "verified", evidence: UPSTREAM },
   { id: "looseSettings", offset: L.LOOSE, size: 16, status: "unknown", evidence: "+2/+3 and +10/+11 vary as matching pairs across 152 projects" },
-  { id: "scaleRoot", offset: L.LOOSE + 16, size: 1, status: "partial", evidence: "0–11 (C in 124 of 152); stored notes are relative to it: they fit the scale from C 98.5 % of the time against 87.7 % from this root (settings.ts); NOTAS:1828" },
+  { id: "scaleRoot", offset: L.LOOSE + 16, size: 1, status: "verified", evidence: "Device 2026-11-24: root C → G on the Circuit changed only this byte (0 → 7) in the saved project, no note bytes, while its MIDI out moved every synth note +7. Stored notes are relative to the root (card: 98.5 % fit from C vs 87.7 % from the root; NOTAS:1828)" },
   { id: "scaleType", offset: L.LOOSE + 17, size: 1, status: "partial", evidence: "0–15 in guide order: 0 (Natural Minor, default) in 86 projects, 15 (Chromatic) in 18; notes fit it 98.5 % (settings.ts)" },
   { id: "looseSettings.tail", offset: L.LOOSE + 18, size: L.LOOSE_N - 18, status: "unknown", evidence: "+18 (0–15), +19 (0–7), +20/+21 (59–65, mostly 64) vary; meaning unknown" },
   { id: "patch.synth1", offset: L.PATCH0, size: L.PATCH_SIZE, status: "partial", evidence: "Novation Programmer's Reference v3 Synth Patch Format, field table in packages/patch; 1 050 card patches in range (tools/patch-sweep.ts). Verified after one device dump matches (plan D-8)" },
