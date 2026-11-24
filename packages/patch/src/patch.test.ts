@@ -41,7 +41,9 @@ describe("format table", () => {
     expect(displayValue(param("voice.preGlide"), 76)).toBe("+12 st");
     expect(displayValue(param("osc2.wave"), 5)).toBe("Saw 7:3 PW");
     expect(displayValue(param("lfo1.phase"), 2)).toBe("6°");
-    expect(displayValue(param("macro1.a.destination"), 20)).toBe("Filter frequency");
+    expect(displayValue(param("macro1.a.destination"), 0)).toBe("None");
+    expect(displayValue(param("macro1.a.destination"), 21)).toBe("Filter frequency");
+    expect(displayValue(param("macro1.a.destination"), 70)).toBe("Mod matrix 20 depth");
   });
 });
 

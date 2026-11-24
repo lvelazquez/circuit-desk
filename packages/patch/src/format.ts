@@ -4,6 +4,9 @@
 // Macro destination names: the firmware's 70-entry table at 0x0805A2B0, as listed in
 // circuit-hacks-rc/tools/macroed.py:54-66 (NOTAS:2224). Only names and numbers live here, no firmware data.
 // Checked on the card copy: 1 050 patches, every value in range (tools/patch-sweep.ts).
+// Cross-checked with Novation Components' own patch model (components.novationmusic.com bundle
+// main-D3lNZfPT.js, read 2026-11-24): every address, signedness, CC/NRPN and the init patch's bytes
+// agree; its names fill in mod sources 1–3 and confirm the macro destination list (components.test.ts).
 
 export const PATCH_SIZE = 340;
 export const NAME_LEN = 16;
@@ -72,9 +75,12 @@ export const LFO_WAVES: readonly string[] = [
   "1625 maj", "1625 min", "2511",
 ];
 
-/** Mod matrix sources. The guide lists 0 and 4–12; 1–3 are not described. */
+/**
+ * Mod matrix sources. The guide lists 0 and 4–12; Components names 1–3 (Nova sources the Circuit has
+ * no control for) and never stores them: picking one resets the slot to Direct with depth 0.
+ */
 export const MOD_SOURCES: readonly string[] = [
-  "Direct", "Source 1 (undocumented)", "Source 2 (undocumented)", "Source 3 (undocumented)",
+  "Direct", "Mod wheel (not used)", "Aftertouch (not used)", "Expression (not used)",
   "Velocity", "Keyboard", "LFO 1 +", "LFO 1 ±", "LFO 2 +", "LFO 2 ±", "Env amp", "Env filter", "Env 3",
 ];
 export const MOD_DESTINATIONS: readonly string[] = [
@@ -114,9 +120,6 @@ export const MACRO_DESTINATION_IDS: readonly string[] = [
   "fx.distortionLevel", "fx.chorusLevel", "fx.chorusRate", "fx.chorusFeedback", "fx.chorusModDepth", "fx.chorusDelay",
   ...Array.from({ length: 20 }, (_, k) => `mod${k + 1}.depth`),
 ];
-
-/** Destinations inferred by symmetry in the firmware study, not yet checked (NOTAS:2224). */
-export const MACRO_DESTINATIONS_UNCHECKED: readonly number[] = [41, 42, 43, 44, 45];
 
 /** Patch categories, as Novation Components names them (circuit-hacks-rc/tools/sd_app.html:453). */
 export const CATEGORIES: readonly string[] = [
@@ -225,7 +228,7 @@ for (const l of [0, 1] as const) {
   add(base + 5, `${id}.rate`, `${nm}Rate`, sec, 0, 127, 68, PLAIN, nrpn(0, n0 + 6));
   add(base + 6, `${id}.rateSync`, `${nm}RateSync`, sec, 0, 35, 0, PLAIN, nrpn(0, n0 + 7));
   add(base + 7, `${id}.flags`, `${nm}Flags`, sec, 0, 63, 0, LFO_FLAGS, undefined,
-    { note: "bits 0–5; over MIDI they are set with NRPN 0:122 / 0:123 values, not the raw byte" });
+    { note: "bits 0–5; over MIDI, NRPN 0:122 takes off/on value pairs (LFO 1: one shot 12/13, key sync 14/15, common sync 16/17, delay trigger 18/19; LFO 2: 22/23 … 28/29) and 0:123 the fade mode (+4 for LFO 2), as Components sends them" });
 }
 
 add(100, "fx.distortionLevel", "Distortion_Level", "FX", 0, 127, 0, PLAIN, cc(91));
@@ -274,7 +277,7 @@ for (let k = 0; k < 8; k++) {
     const slot = "ABCD"[s]!;
     const lsb = 16 * k + 4 * s;
     add(d, `${id}.${slot.toLowerCase()}.destination`, `${nm}Destination${slot}`, "Macros", 0, 70, 0,
-      enumOf([...MACRO_DESTINATIONS, "70 (no effect in firmware)"]), nrpn(3, lsb));
+      enumOf(["None", ...MACRO_DESTINATIONS]), nrpn(3, lsb));
     add(d + 1, `${id}.${slot.toLowerCase()}.start`, `${nm}StartPos${slot}`, "Macros", 0, 127, 0, PLAIN, nrpn(3, lsb + 1));
     add(d + 2, `${id}.${slot.toLowerCase()}.end`, `${nm}EndPos${slot}`, "Macros", 0, 127, 127, PLAIN, nrpn(3, lsb + 2));
     add(d + 3, `${id}.${slot.toLowerCase()}.depth`, `${nm}Depth${slot}`, "Macros", 0, 127, 64, BIP, nrpn(3, lsb + 3));
