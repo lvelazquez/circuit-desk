@@ -40,6 +40,20 @@ async function run(): Promise<void> {
     await wait(700);
     await shot(`view-${v.toLowerCase()}`);
   }
+  // The panel's pad views and Shift, when the panel is there.
+  const panelButton = (name: string) => `[...document.querySelectorAll('.hw-btn')].find(b => b.querySelector('.hw-label')?.textContent === '${name}')`;
+  if (await js<boolean>(`!!document.querySelector('.hw')`)) {
+    for (const [name, file] of [["Patterns", "pads-patterns"], ["Velocity", "pads-velocity"], ["Pattern Settings", "pads-settings"], ["Note", "pads-note"]] as const) {
+      await js(`${panelButton(name)}?.click()`);
+      await wait(300);
+      if (name === "Velocity") { await js(`document.querySelector('.hw .grid .pad')?.click()`); await wait(300); }
+      await shot(file);
+    }
+    await js(`${panelButton("Shift")}?.click()`);
+    await wait(300);
+    await shot("panel-shift");
+    await js(`${panelButton("Shift")}?.click()`);
+  }
   // The Editor while playing, a few seconds in.
   await js(`(document.querySelector('[data-view="editor"]') ?? [...document.querySelectorAll('button')].find(b => b.textContent === 'Editor'))?.click()`);
   await wait(400);

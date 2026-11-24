@@ -1,19 +1,16 @@
-// The window's top bar, one row: the project, the views (Sequence · Sound · Song), the transport
-// with its Playback settings, Keys, Undo/Redo and Export. Opening and saving copies are in the
-// File menu (⌘O, ⌘S).
+// The window's top bar, one row: the project, the transport with Follow and its Playback settings,
+// Keys, Undo/Redo and Export. The views are tabs of the pane beside the Circuit panel; opening and
+// saving copies are in the File menu (⌘O, ⌘S) and on the panel (Projects, Save).
 import type { Scenes, Summary } from "./desk.ts";
 import type { Firmware } from "./hooks.ts";
 import { Popover } from "./ui/Popover.tsx";
 import type { KeySound } from "./useKeyboardPlayer.ts";
 import { parsePlayFrom, playFromValue, type Player } from "./usePlayer.ts";
-import { VIEWS, type View } from "./views.ts";
 
 export interface ToolbarProps {
   summary: Summary | null;
   projectId: string | null;
   scenes: Scenes | null;
-  view: View;
-  onView: (v: View) => void;
   player: Player;
   keys: { on: boolean; setOn: (on: boolean) => void };
   keySound: KeySound | null;
@@ -29,8 +26,6 @@ export interface ToolbarProps {
   onFollow: (on: boolean) => void;
 }
 
-const GROUPS = ["Sequence", "Sound", "Song"] as const;
-
 export function Toolbar(p: ToolbarProps) {
   const { summary, player, firmware } = p;
   const project = summary ? `${summary.name} · ${summary.tempo.value} BPM${summary.edits ? ` · ${summary.edits} edit${summary.edits > 1 ? "s" : ""}` : ""}` : "No project";
@@ -39,18 +34,6 @@ export function Toolbar(p: ToolbarProps) {
       <a className="skip-link" href="#workspace" onClick={(e) => { e.preventDefault(); document.getElementById("workspace")?.focus(); }}>Skip to workspace</a>
       <h1 className="visually-hidden">Circuit Desk</h1>
       <span className="project-name" data-tip={summary ? `${project}. ${summary.path}` : "Open a project from the library or File › Open Project… (⌘O)."}>{project}</span>
-
-      <nav aria-label="Views" className="view-switch">
-        {GROUPS.map((g) => (
-          <div key={g} role="group" aria-label={g} className="row">
-            {VIEWS.filter((v) => v.group === g).map((v) => {
-              const n = VIEWS.indexOf(v) + 1;
-              return <button key={v.id} type="button" className="btn" aria-pressed={p.view === v.id} aria-keyshortcuts={`Meta+${n}`}
-                data-tip={`${v.tip} (⌘${n})`} onClick={() => p.onView(v.id)}>{v.label}</button>;
-            })}
-          </div>
-        ))}
-      </nav>
 
       <div role="group" aria-label="Transport" className="row">
         <button type="button" className="btn" aria-pressed={player.playing} disabled={!p.projectId} aria-keyshortcuts="Meta+Enter"

@@ -186,7 +186,7 @@ async function run(): Promise<void> {
   const unnamed = await js<number>(`[...document.querySelectorAll('button, [role=application], input, select')].filter(b => !(b.getAttribute('aria-label') || b.textContent.trim() || b.labels?.length)).length`);
   check("every control has an accessible name", unnamed === 0, `${unnamed} without`);
 
-  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
+  // The Circuit panel is always on screen.
   await until(`!!document.querySelector('.grid .pad')`);
   const motion = await js<string>(`getComputedStyle(document.querySelector('.grid .pad')).transitionDuration`);
   await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
@@ -213,12 +213,29 @@ async function run(): Promise<void> {
   wc.sendInputEvent({ type: "mouseMove", x: 4, y: 4 });
   check("buttons enter hover with Medium/SmoothOut and leave with the shorter Fast/SmoothIn",
     restT === "0.09s cubic-bezier(0.4, 0, 1, 1)" && hoverT === "0.16s cubic-bezier(0.2, 0, 0, 1)", `rest ${restT}, hover ${hoverT}`);
+  // The panel's buttons: the same pairs, on named properties only; none under reduced motion.
+  const scales = `[...document.querySelectorAll('.hw-btn')].find(b => b.querySelector('.hw-label')?.textContent === 'Scales')`;
+  const hwT = (): Promise<string> => js<string>(`(() => { const c = getComputedStyle(${scales}); return c.transitionProperty + ' | ' + c.transitionDuration + ' | ' + c.transitionTimingFunction; })()`);
+  const hwRest = await hwT();
+  const scalesAt = await js<{ x: number; y: number }>(`(() => { const r = ${scales}.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
+  wc.sendInputEvent({ type: "mouseMove", x: scalesAt.x, y: scalesAt.y });
+  await wait(120);
+  const hwHover = await hwT();
+  wc.sendInputEvent({ type: "mouseMove", x: 4, y: 4 });
+  await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  await wait(200);
+  const hwReduced = await hwT();
+  await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
+  check("panel buttons: Medium/SmoothOut into hover, Fast/SmoothIn out, named properties, none under reduced motion",
+    hwRest === "background-color, border-color | 0.09s, 0.09s | cubic-bezier(0.4, 0, 1, 1), cubic-bezier(0.4, 0, 1, 1)"
+      && hwHover === "background-color, border-color | 0.16s, 0.16s | cubic-bezier(0.2, 0, 0, 1), cubic-bezier(0.2, 0, 0, 1)"
+      && hwReduced.split(" | ")[1]!.split(",").every((d) => d.trim() === "0s"), `${hwRest} → ${hwHover} → reduced ${hwReduced}`);
 
   // Tooltips: every control in every view has one; hover shows it after the delay, keyboard focus
   // at once, Escape hides it; it enters with Fast/SmoothOut and without motion under reduced motion.
   const untipped: string[] = [];
-  for (const v of ["Circuit", "Editor", "Scenes", "Sounds", "Mixer", "Pack", "Project"]) {
-    await js(`[...document.querySelectorAll('button')].find(b => b.textContent === '${v}').click()`);
+  for (const v of ["Editor", "Scenes", "Sounds", "Mixer", "Pack", "Project"]) {
+    await js(`document.querySelector('[role=tab][data-view="${v.toLowerCase()}"]').click()`);
     await wait(600);
     // A screenshot of every view, for comparing the UI before and after a change.
     writeFileSync(path.join(home, `view-${v.toLowerCase()}.png`), (await wc.capturePage()).toPNG());
@@ -226,7 +243,6 @@ async function run(): Promise<void> {
       .filter(e => !e.closest('[data-tip]')).map(e => '${v}: ' + (e.getAttribute('aria-label') || e.textContent.trim().slice(0, 30) || e.id || e.tagName)).slice(0, 6)`));
   }
   check("every control has a tooltip", untipped.length === 0, untipped.join(" | "));
-  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
   await wait(300);
   const tipEl = `document.getElementById('app-tooltip')`;
   const saveBox = await js<{ x: number; y: number }>(`(() => { const r = [...document.querySelectorAll('button')].find(b => b.textContent === 'Playback ▾').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; })()`);
@@ -245,13 +261,19 @@ async function run(): Promise<void> {
   check("the tooltip enters with Fast/SmoothOut", timing === "90 cubic-bezier(0.2, 0, 0, 1)", timing);
   wc.sendInputEvent({ type: "mouseMove", x: 4, y: 4 });
   check("leaving the control hides it", await until(`${tipEl}.hidden`));
-  // Near the window's left edge the tip is kept on screen, and still grows from its trigger.
+  // Near the window's left edge the tip is kept on screen, and still grows from its trigger. The
+  // library is closed once a project is open; Projects on the panel shows it.
+  const projectsBtn = `[...document.querySelectorAll('.hw-btn')].find(b => b.querySelector('.hw-label')?.textContent === 'Projects')`;
+  await js(`${projectsBtn}.click()`);
+  check("Projects on the panel shows the library", await until(`!!document.querySelector('.library input[type=search]') && ${projectsBtn}.getAttribute('aria-pressed') === 'true'`));
   const searchAt = await js<{ x: number; y: number }>(`(() => { const r = document.querySelector('.library input[type=search]').getBoundingClientRect(); return { x: Math.round(r.x + 6), y: Math.round(r.y + r.height / 2) }; })()`);
   wc.sendInputEvent({ type: "mouseMove", x: searchAt.x, y: searchAt.y });
   const edgeTip = await until(`!${tipEl}.hidden`, 2000);
   const origin = await js<{ origin: string; offset: string }>(`(() => { const t = document.getElementById('app-tooltip'); return { origin: getComputedStyle(t).transformOrigin, offset: t.style.getPropertyValue('--tip-origin-x') }; })()`);
   wc.sendInputEvent({ type: "mouseMove", x: 4, y: 4 });
   check("a tooltip kept on screen still grows from its trigger", edgeTip && origin.offset !== "" && origin.offset !== "0px" && !origin.origin.startsWith("50%"), JSON.stringify(origin));
+  await js(`${projectsBtn}.click()`);
+  check("Projects again hides it", await until(`!document.querySelector('.library')`));
   // Focus events only fire in a window that has the system focus.
   win.focus(); wc.focus();
   await wait(200);
@@ -289,30 +311,29 @@ async function run(): Promise<void> {
   check("under reduced motion the Playback panel opens and closes without motion", reducedPop === "0s" && closedAtOnce, `${reducedPop}, closed at once: ${closedAtOnce}`);
   await wc.debugger.sendCommand("Emulation.setEmulatedMedia", { features: [] });
 
-  // ⌘1–⌘7 go straight to a view; the Inspector shows only beside Circuit and Editor.
-  const noInspector: string[] = [];
+  // ⌘2–⌘7 show a view in the pane beside the panel; the panel and the Inspector under it stay.
+  const lost: string[] = [];
   for (const v of ["Sounds", "Mixer", "Pack", "Scenes", "Project"]) {
     menuClick(v);
     await until(`document.querySelector('.workspace').getAttribute('aria-label') === '${v} view'`, 1500);
-    if (await js<boolean>(`!!document.querySelector('.inspector')`)) noInspector.push(v);
+    if (!(await js<boolean>(`!!document.querySelector('.inspector') && !!document.querySelector('.hw .grid .pad') && document.querySelector('[role=tab][aria-selected=true]')?.textContent === '${v}'`))) lost.push(v);
   }
   menuClick("Editor");
   const editorInspector = await until(`document.querySelector('.workspace').getAttribute('aria-label') === 'Editor view' && !!document.querySelector('.inspector')`, 1500);
-  check("View › Sounds…Project go to that view, with no Inspector beside it", noInspector.length === 0, noInspector.join(", "));
-  check("the Editor keeps the Inspector, labelled with what it follows", editorInspector && /^Inspector: (Synth|MIDI|Drum) \d · pattern 1( · step \d+)?$/.test(await js<string>(`document.getElementById('inspector-title')?.textContent ?? ''`)),
+  check("View › Sounds…Project show that tab, with the panel and the Inspector still there", lost.length === 0, lost.join(", "));
+  check("the Inspector is labelled with what it follows", editorInspector && /^Inspector: (Synth|MIDI|Drum) \d · pattern 1( · step \d+)?$/.test(await js<string>(`document.getElementById('inspector-title')?.textContent ?? ''`)),
     await js<string>(`document.getElementById('inspector-title')?.textContent ?? 'none'`));
-  // F6 moves between regions: from the workspace to the inspector, then round to the toolbar.
-  await js(`document.getElementById('workspace').focus()`);
-  await key("F6");
-  const f6a = await js<string>(`document.activeElement?.closest('#toolbar, #library, #workspace, #inspector')?.id ?? 'none'`);
-  await key("F6");
-  const f6b = await js<string>(`document.activeElement?.closest('#toolbar, #library, #workspace, #inspector')?.id ?? 'none'`);
-  check("F6 moves focus workspace → inspector → toolbar", f6a === "inspector" && f6b === "toolbar", `${f6a} → ${f6b}`);
+  // F6 moves between regions: inspector → pane → toolbar → panel (the library is closed).
+  const innermost = `(() => { const a = document.activeElement; return a?.closest('#inspector')?.id ?? a?.closest('#toolbar, #library, #workspace, #device')?.id ?? 'none'; })()`;
+  await js(`document.querySelector('#inspector input, #inspector select, #inspector button')?.focus()`);
+  const f6s: string[] = [];
+  for (let i = 0; i < 3; i++) { await key("F6"); f6s.push(await js<string>(innermost)); }
+  check("F6 moves focus inspector → pane → toolbar → panel", f6s.join(" → ") === "workspace → toolbar → device", f6s.join(" → "));
   menuClick("Circuit");
-  await until(`!!document.querySelector('.grid .pad')`);
+  check("View › Circuit (⌘1) moves focus to the panel's pads", await until(`!!document.activeElement?.closest('.hw .grid')`));
 
   // Macro knobs: Synth 1's real positions; a key step is one undoable patch edit.
-  const knob = `document.querySelector('.knobs [role=slider][aria-label="Macro 1"]')`;
+  const knob = `document.querySelector('.hw-knobs [role=slider][aria-label="1 Oscillator"]')`;
   const knob0 = await js<number>(`+${knob}.getAttribute('aria-valuenow')`);
   await js(`${knob}.focus()`);
   await key("Up");
@@ -377,7 +398,6 @@ async function run(): Promise<void> {
   await pick(1, "1");
   check("choosing Major is an edit", await until(`document.querySelector('[role=status]').textContent === 'Edited: scale Major'`));
   writeFileSync(path.join(home, "project-view.png"), (await wc.capturePage()).toPNG());
-  await click("Circuit");
   check("a stored C4 shows as D4 with root D", await until(`${step1}.getAttribute('aria-label').startsWith('Step 1: D4')`), await js<string>(`${step1}.getAttribute('aria-label')`));
   const keyLabels = await js<string[]>(`[...document.querySelectorAll('.pad.key')].slice(8).map(b => b.textContent.replace(' ●', ''))`);
   check("the bottom row of keys climbs D major", keyLabels.join(" ") === "D3 E3 F♯3 G3 A3 B3 C♯4 D4", keyLabels.join(" "));
@@ -387,7 +407,6 @@ async function run(): Promise<void> {
     await js<string>(`[...document.querySelectorAll('.pad.key')].slice(8).map(b => b.textContent).join(' ')`));
 
   // An edit from outside (as the MCP server makes it) shows in the window.
-  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
   const link = await SocketClient.connect(path.join(home, ".circuit-desk.sock"));
   check("the app serves the MCP link", !!link);
   await link?.call("setSteps", ["p1", "Synth 1", 1, [{ step: 5, notes: [{ note: 72, velocity: 100, gate: 6, micro: 0 }] }]]);
@@ -479,7 +498,6 @@ async function run(): Promise<void> {
   await js(`${fxBtn}.click()`);
 
   // Playback through the fake output.
-  await js(`[...document.querySelectorAll('button')].find(b => b.textContent === 'Circuit').click()`);
   await until(`!!document.querySelector('.grid .pad')`);
   await openPlayback();
   await js(`(() => { const s = document.getElementById('midi-out'); s.value = 'fake'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
@@ -507,8 +525,12 @@ async function run(): Promise<void> {
   check("choosing a scene while playing plays it", await until(`document.getElementById('play-from').value === 'scene:2' && window.__sent.some(m => m.bytes[0] === 0x90) && !document.querySelector('[role=alert]')`),
     await js<string>(`document.querySelector('[role=alert]')?.textContent ?? ''`));
   await chooseFrom("pattern:1");
-  check("choosing a pattern plays it on every track and marks its pad", await until(`!!document.querySelector('.pattern-pad[data-playing=true]') && !document.querySelector('[role=alert]')`),
+  // The panel's Patterns view shows which pattern each track is playing.
+  const panelBtn = (name: string): string => `[...document.querySelectorAll('.hw-btn')].find(b => b.querySelector('.hw-label')?.textContent === '${name}')`;
+  await js(`${panelBtn("Patterns")}.click()`);
+  check("choosing a pattern plays it on every track and marks its pad", await until(`document.querySelectorAll('.pattern-pad[data-playing=true]').length >= 1 && !document.querySelector('[role=alert]')`),
     await js<string>(`document.querySelector('[role=alert]')?.textContent ?? ''`));
+  await js(`${panelBtn("Note")}.click()`);
   await chooseFrom("current");
   const shotPlaying = path.join(home, "playing.png");
   writeFileSync(shotPlaying, (await wc.capturePage()).toPNG());
@@ -527,8 +549,11 @@ async function run(): Promise<void> {
   await setSelect("firmware", "official");
   await until(`localStorage.getItem('circuit-desk.firmware') === 'official'`);
 
-  // Keys: the computer keyboard plays Synth 1 on the chosen output (the fake port: channel 1).
+  // Keys: the computer keyboard plays Synth 1 on the chosen output (the fake port: channel 1). Keys
+  // never play while a text field or slider has focus, so first go to the pads (⌘1), as a player would.
   await js(`[...document.querySelectorAll('[role=radio]')].find(b => b.textContent.includes('Synth 1'))?.click()`);
+  menuClick("Circuit");
+  await until(`!!document.activeElement?.closest('.hw .grid')`);
   const keysBtn = `[...document.querySelectorAll('button')].find(b => b.textContent.includes('Keys'))`;
   const editsBefore = await js<string>(`document.querySelector('.project-name').textContent`);
   await js(`window.__sent.length = 0; ${keysBtn}.click()`);

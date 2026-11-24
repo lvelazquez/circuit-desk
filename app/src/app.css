@@ -30,9 +30,6 @@ legend { color: var(--color-text-secondary); font-size: var(--font-size-sm); pad
 
 .app { display: grid; grid-template-rows: auto 1fr auto; height: 100%; }
 .toolbar { display: flex; flex-wrap: nowrap; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-lg); background: var(--color-surface-panel); border-bottom: var(--size-border) solid var(--color-border-subtle); }
-.toolbar .view-switch { display: flex; gap: var(--space-md); }
-.toolbar .view-switch > .row { gap: var(--space-2xs); }
-.toolbar .view-switch > .row + .row { padding-left: var(--space-md); border-left: var(--size-border) solid var(--color-border-subtle); }
 .skip-link { position: absolute; left: var(--space-sm); top: var(--space-sm); z-index: var(--z-overlay); padding: var(--space-xs) var(--space-sm); background: var(--color-surface-raised); border-radius: var(--radius-control); transform: translateY(calc(-100% - var(--space-lg))); }
 .skip-link:focus { transform: none; }
 .toolbar .project-name { color: var(--color-text-secondary); margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: var(--size-project-name); flex: 0 1 auto; }
@@ -49,8 +46,15 @@ legend { color: var(--color-text-secondary); font-size: var(--font-size-sm); pad
 .btn[aria-pressed="true"], .btn[aria-selected="true"] { border-color: var(--color-text-secondary); background: var(--color-surface-pad-hover); color: var(--color-text-primary);
   font-weight: var(--font-weight-strong); box-shadow: inset 0 calc(-1 * var(--size-border-strong)) 0 var(--track, var(--color-text-primary)); }
 
-.main { display: grid; grid-template-columns: var(--size-sidebar) 1fr var(--size-inspector); min-height: 0; }
-.main[data-inspector="false"] { grid-template-columns: var(--size-sidebar) 1fr; }
+/* The window: the library (when open), the Circuit panel with the Inspector under it, and the pane of
+   views beside them. Each scrolls on its own; when the pane would be narrower than --size-pane-min it
+   moves below the panel and the whole area scrolls. */
+.main { display: flex; flex-wrap: wrap; align-content: flex-start; min-height: 0; overflow: auto; }
+.main > .library { flex: 0 0 var(--size-sidebar); max-height: 100%; }
+.device-column { flex: 0 0 auto; max-height: 100%; overflow: auto; padding: var(--space-lg); display: grid; gap: var(--space-lg); align-content: start; justify-items: stretch; }
+.device-column > .inspector { border-radius: var(--radius-panel); width: 0; min-width: 100%; }
+.workspace { flex: 1 1 var(--size-pane-min); min-width: 0; max-height: 100%; }
+.detail-tabs { display: flex; flex-wrap: wrap; gap: var(--space-2xs); margin-bottom: var(--space-md); }
 .workspace:focus-visible { outline-offset: calc(-1 * var(--size-focus-ring)); }
 .inspector-title { margin: 0 0 var(--space-sm); padding-left: var(--space-sm); border-left: var(--size-border-strong) solid var(--track); font-weight: var(--font-weight-strong); }
 .panel { background: var(--color-surface-panel); padding: var(--space-md); overflow: auto; min-height: 0; }
@@ -67,24 +71,69 @@ legend { color: var(--color-text-secondary); font-size: var(--font-size-sm); pad
 .library .pack { color: var(--color-text-secondary); font-size: var(--font-size-xs); margin: var(--space-md) 0 var(--space-2xs); }
 .library input[type="search"] { width: 100%; min-height: var(--size-control); padding: var(--space-xs) var(--space-sm); }
 
-.device { display: grid; grid-template-columns: auto 1fr; gap: var(--space-lg); align-items: start; }
-.tracks { display: grid; gap: var(--space-xs); }
-.track-btn { display: flex; align-items: center; gap: var(--space-sm); width: var(--size-track-button); padding: var(--space-sm); border-radius: var(--radius-pad); border: var(--size-border) solid var(--color-border-control);
-  background: var(--color-surface-pad); cursor: pointer; transition: background-color var(--motion-duration-fast) var(--motion-easing-smooth-in); }
-.track-btn:hover { background: var(--color-surface-pad-hover); transition: background-color var(--motion-duration-medium) var(--motion-easing-smooth-out); }
-.track-btn::before { content: ""; width: var(--space-md); height: var(--space-md); border-radius: var(--radius-round); background: var(--track); opacity: var(--opacity-muted); }
-.track-btn[aria-checked="true"] { border-color: var(--track); background: var(--color-surface-pad-hover); font-weight: var(--font-weight-strong); }
-.track-btn[aria-checked="true"]::before { opacity: 1; }
+/* The Circuit panel (CircuitView.tsx), laid out like the device: staggered knobs, the function row,
+   the track row, and the pads between the view buttons and the mix/transport buttons. */
+.hw { display: grid; gap: var(--space-sm); width: max-content; padding: var(--space-lg); background: var(--color-surface-hw);
+  border: var(--size-border) solid var(--color-border-subtle); border-radius: var(--radius-hw); }
+.hw-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-md); }
+.hw-brand { font-weight: var(--font-weight-strong); text-transform: uppercase; letter-spacing: var(--font-tracking-caps); }
+.hw-brand span { font-weight: var(--font-weight-regular); }
+.hw-status { font-size: var(--font-size-sm); color: var(--color-text-secondary); text-align: right; }
+.hw-help { margin: 0; max-width: 0; min-width: 100%; }
+/* Knobs: eleven half-columns; the upper row starts at the left edge, the lower row half a knob in. */
+.hw-knobs { display: grid; grid-template-columns: repeat(11, 1fr); }
+.hw-knob[data-row="upper"] { grid-row: 1; }
+.hw-knob[data-row="lower"] { grid-row: 2; }
+.hw-knob[data-col="master"] { grid-column: 1 / span 2; }
+.hw-knob[data-row="upper"][data-col="0"] { grid-column: 3 / span 2; }
+.hw-knob[data-row="upper"][data-col="1"] { grid-column: 5 / span 2; }
+.hw-knob[data-row="upper"][data-col="2"] { grid-column: 7 / span 2; }
+.hw-knob[data-row="upper"][data-col="3"] { grid-column: 9 / span 2; }
+.hw-knob[data-row="lower"][data-col="0"] { grid-column: 2 / span 2; }
+.hw-knob[data-row="lower"][data-col="1"] { grid-column: 4 / span 2; }
+.hw-knob[data-row="lower"][data-col="2"] { grid-column: 6 / span 2; }
+.hw-knob[data-row="lower"][data-col="3"] { grid-column: 8 / span 2; }
+.hw-knob[data-col="filter"] { grid-column: 10 / span 2; }
+.hw-row { display: grid; grid-template-columns: var(--size-hw-side) repeat(8, var(--size-pad)) var(--size-hw-side); gap: var(--space-xs); }
+.hw-tracks { grid-column: 2 / span 8; display: grid; grid-template-columns: repeat(8, var(--size-pad)); gap: var(--space-xs); }
+.hw-main { display: grid; grid-template-columns: var(--size-hw-side) auto var(--size-hw-side); gap: var(--space-xs); }
+.hw-col { display: grid; grid-template-rows: repeat(4, var(--size-pad)); gap: var(--space-xs); }
+.hw-btn { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2xs); min-height: var(--size-hw-button);
+  padding: var(--space-2xs); border-radius: var(--radius-control); border: var(--size-border) solid var(--color-border-control); background: var(--color-surface-pad);
+  font-size: var(--font-size-xs); line-height: var(--line-height-tight); text-align: center; cursor: pointer;
+  /* Leaving hover: the short exit pair. */
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-smooth-in), border-color var(--motion-duration-fast) var(--motion-easing-smooth-in); }
+.hw-btn:hover:not(:disabled) { background: var(--color-surface-pad-hover);
+  /* Entering hover: the longer entry pair. */
+  transition: background-color var(--motion-duration-medium) var(--motion-easing-smooth-out), border-color var(--motion-duration-medium) var(--motion-easing-smooth-out); }
+.hw-btn:disabled { color: var(--color-text-disabled); border-color: var(--color-border-subtle); cursor: default; }
+/* The second function, printed small under the name; with Shift on it is the one that reads. */
+.hw-alt { color: var(--color-text-secondary); }
+.hw-btn[data-shifted] .hw-label { opacity: var(--opacity-muted); }
+.hw-btn[data-shifted] .hw-alt { color: var(--color-text-primary); font-weight: var(--font-weight-strong); }
+/* On (a toggle, the current view, the current track): lit, heavier text and a bar along the bottom, so not colour alone. */
+.hw-btn[aria-pressed="true"], .hw-track[aria-checked="true"] { border-color: var(--track, var(--color-text-secondary)); background: var(--color-surface-pad-hover);
+  font-weight: var(--font-weight-strong); box-shadow: inset 0 calc(-1 * var(--size-border-strong)) 0 var(--track, var(--color-text-primary)); }
+/* A track button's LED: its colour along the top, dim until chosen. */
+.hw-track::before { content: ""; position: absolute; top: var(--space-xs); left: var(--space-sm); right: var(--space-sm); height: var(--size-border-strong);
+  border-radius: var(--radius-control); background: var(--track); opacity: var(--opacity-muted); }
+.hw-track[aria-checked="true"]::before { opacity: 1; }
+.hw-accent .hw-label { color: var(--color-hw-label-accent); }
+.hw-rec { color: var(--color-danger); font-size: var(--font-size-lg); }
+.hw-play { color: var(--color-hw-play); font-size: var(--font-size-lg); }
+.hw-btn:disabled .hw-rec, .hw-btn:disabled .hw-play { opacity: var(--opacity-muted); }
+.hw .knob .knob-label { text-align: center; }
 
 .row { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; margin-bottom: var(--space-md); }
 .row label { color: var(--color-text-secondary); font-size: var(--font-size-sm); display: flex; gap: var(--space-xs); align-items: center; }
 .row input[type="number"], .row select, .inspector input[type="number"], .inspector select { min-width: var(--size-number-input); }
 
-.patterns { display: grid; grid-template-columns: repeat(8, var(--size-pad)); gap: var(--space-xs); margin-bottom: var(--space-md); }
-.pattern-pad { height: var(--size-pattern-pad); border-radius: var(--radius-pad); border: var(--size-border) solid var(--color-border-control); background: var(--color-surface-pad); cursor: pointer; font-size: var(--font-size-sm); }
-.pattern-pad[data-used="true"] { border-color: var(--track); background: color-mix(in srgb, var(--track) var(--mix-used), var(--color-surface-pad)); }
-.pattern-pad[data-playing="true"] { box-shadow: inset 0 var(--size-playhead) 0 0 var(--color-playhead); }
-.pattern-pad[aria-checked="true"] { background: var(--track); color: var(--color-text-on-accent); }
+/* Patterns view: a pattern with notes is tinted, one in the track's chain framed in its colour; the one
+   being edited has the selection frame, the playing one the playhead bar (both below). */
+.pad.pattern-pad[data-used="true"] { background: color-mix(in srgb, var(--track) var(--mix-used), var(--color-surface-pad)); color: var(--color-text-primary); }
+.pad.pattern-pad[data-chain="true"] { border: var(--size-border-strong) solid var(--track); }
+/* Pattern Settings: the steps inside first–last are lit; the two ends say so in text. */
+.pad.range[data-edge="true"] { font-weight: var(--font-weight-strong); }
 
 .grid { display: grid; grid-template-columns: repeat(8, var(--size-pad)); gap: var(--space-xs); }
 .pad { position: relative; height: var(--size-pad); border-radius: var(--radius-pad); border: var(--size-border) solid var(--color-border-control); background: var(--color-surface-pad);
@@ -120,7 +169,6 @@ legend { color: var(--color-text-secondary); font-size: var(--font-size-sm); pad
 .pad.scene:not([data-on="true"]) { background: color-mix(in srgb, var(--track) var(--mix-scene-idle), var(--color-surface-pad)); }
 .pad.scene[data-outside="true"]:not([data-on="true"]) { background: var(--color-outside-range); }
 
-.knobs { display: grid; grid-template-columns: repeat(8, var(--size-pad)); gap: var(--space-xs); margin-top: var(--space-lg); }
 .knob { display: grid; justify-items: center; gap: var(--space-2xs); color: var(--color-text-secondary); font-size: var(--font-size-xs); }
 .knob [role="slider"] { width: var(--size-knob); height: var(--size-knob); border-radius: var(--radius-round); border: var(--size-border-strong) solid var(--color-border-control); cursor: ns-resize; touch-action: none;
   background: conic-gradient(from var(--angle-knob-start), var(--track) calc(var(--knob-pos) * var(--angle-knob-sweep)), var(--color-surface-raised) 0); }

@@ -1,20 +1,25 @@
-// The window's views, in switcher order (⌘1–⌘7), grouped as the toolbar shows them.
+// The window's views, in menu order (⌘1–⌘7). The Circuit panel is always on screen (⌘1 moves focus to
+// its pads); the others are tabs of the pane beside it.
 export type View = "circuit" | "editor" | "scenes" | "sounds" | "mixer" | "pack" | "project";
+export type DetailView = Exclude<View, "circuit">;
 
-export interface ViewInfo { id: View; label: string; group: "Sequence" | "Sound" | "Song"; tip: string }
+export interface ViewInfo { id: View; label: string; tip: string }
 
 export const VIEWS: readonly ViewInfo[] = [
-  { id: "circuit", label: "Circuit", group: "Sequence", tip: "The device: track buttons, pattern pads, the 32-pad grid for steps and notes, and the macro knobs." },
-  { id: "editor", label: "Editor", group: "Sequence", tip: "Piano roll, velocity lane, automation lanes and the drum grid for the pattern." },
-  { id: "scenes", label: "Scenes", group: "Sequence", tip: "The 16 scenes: which patterns each track plays, and the scene chain." },
-  { id: "sounds", label: "Sounds", group: "Sound", tip: "Synth 1 and 2's patches page by page, and each drum's sample and knobs." },
-  { id: "mixer", label: "Mixer", group: "Sound", tip: "Levels, pans, reverb and delay sends, mute and solo, the project FX and the sidechains." },
-  { id: "pack", label: "Pack", group: "Sound", tip: "The pack's 64 drum samples and its synth patch banks, to audition and copy." },
-  { id: "project", label: "Project", group: "Song", tip: "Name, tempo, swing, scale and root." },
+  { id: "circuit", label: "Circuit", tip: "The device panel: knobs, buttons and the 32 pads. Always on screen; this moves focus to its pads." },
+  { id: "editor", label: "Editor", tip: "Piano roll, velocity lane, automation lanes and the drum grid for the pattern." },
+  { id: "scenes", label: "Scenes", tip: "The 16 scenes: which patterns each track plays, and the scene chain." },
+  { id: "sounds", label: "Sounds", tip: "Synth 1 and 2's patches page by page, and each drum's sample and knobs." },
+  { id: "mixer", label: "Mixer", tip: "Levels, pans, reverb and delay sends, mute and solo, the project FX and the sidechains." },
+  { id: "pack", label: "Pack", tip: "The pack's 64 drum samples and its synth patch banks, to audition and copy." },
+  { id: "project", label: "Project", tip: "Name, tempo, swing, scale and root." },
 ];
 
-/** Views that edit a pattern, and so show the Inspector beside them. */
-export const PATTERN_VIEWS: ReadonlySet<View> = new Set(["circuit", "editor"]);
+/** The tabs of the pane beside the panel. */
+export const DETAIL_VIEWS: readonly (ViewInfo & { id: DetailView })[] = VIEWS.filter((v): v is ViewInfo & { id: DetailView } => v.id !== "circuit");
 
-/** The view `d` places after (or before) `v`, wrapping round. */
-export const stepView = (v: View, d: 1 | -1): View => VIEWS[(VIEWS.findIndex((x) => x.id === v) + d + VIEWS.length) % VIEWS.length]!.id;
+/** The tab `d` places after (or before) `v`, wrapping round. */
+export const stepView = (v: DetailView, d: 1 | -1): DetailView => {
+  const i = DETAIL_VIEWS.findIndex((x) => x.id === v);
+  return DETAIL_VIEWS[(i + d + DETAIL_VIEWS.length) % DETAIL_VIEWS.length]!.id;
+};

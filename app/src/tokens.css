@@ -9,6 +9,8 @@
   --color-surface-pad: #2a2d35;
   --color-surface-pad-hover: #343843;
   --color-surface-key-black: #1b1d22;
+  /* The Circuit panel's body: a shade darker than the window, as the device sits on the desk. */
+  --color-surface-hw: #0b0c0f;
   /* Dividers and quiet frames (not a control's edge). */
   --color-border-subtle: #2c3038;
   --color-border-strong: #4a4f5c;
@@ -36,6 +38,9 @@
   --color-track-drum3: #fde047;
   --color-track-drum4: #f87171;
   --color-scene: #93c5fd;
+  /* Panel labels printed in colour on the device: Mixer (cyan) and Play (green); Record uses --color-danger. */
+  --color-hw-label-accent: #67e8f9;
+  --color-hw-play: #34d399;
 
   /* Spacing. */
   --space-2xs: 2px;
@@ -61,9 +66,11 @@
   --size-border: 1px;
   --size-border-strong: 2px;
   --size-sidebar: 260px;
-  --size-inspector: 380px;
-  --size-track-button: 120px;
-  --size-pattern-pad: 28px;
+  /* The Circuit panel: side button columns as wide as a pad, function rows this tall at least. */
+  --size-hw-side: var(--size-pad);
+  --size-hw-button: 40px;
+  /* The pane beside the panel moves below it when it would be narrower than this. */
+  --size-pane-min: 400px;
   --size-number-input: 64px;
   --size-note-name: 48px;
   --size-drum-name: 80px;
@@ -85,6 +92,9 @@
   --size-velocity-bar: 60%;
   --radius-pad: 6px;
   --radius-panel: 10px;
+  --radius-hw: 16px;
+  /* Two-line panel labels ("Tempo / Swing") sit tighter than body text. */
+  --line-height-tight: 1.15;
   --radius-control: 4px;
   --radius-round: 50%;
 

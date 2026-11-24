@@ -20,7 +20,7 @@ const contrast = (a: string, b: string): number => {
 };
 
 /** Where text and controls sit. */
-const SURFACES = ["color-surface-body", "color-surface-panel", "color-surface-raised"];
+const SURFACES = ["color-surface-body", "color-surface-panel", "color-surface-raised", "color-surface-hw"];
 const TRACKS = ["synth1", "synth2", "midi1", "midi2", "drum1", "drum2", "drum3", "drum4"].map((t) => `color-track-${t}`).concat(["color-scene"]);
 
 describe("colour tokens meet WCAG contrast", () => {
@@ -35,6 +35,13 @@ describe("colour tokens meet WCAG contrast", () => {
   it("control edges, the focus ring and the selection frame: 3:1 against the surfaces around them", () => {
     for (const edge of ["color-border-control", "color-focus-ring", "color-selected"]) {
       for (const bg of SURFACES) expect(contrast(token(edge), token(bg)), `${edge} on ${bg}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("the panel's coloured Mixer label: 4.5:1 on its button; the Play and Record symbols (icons): 3:1", () => {
+    for (const bg of ["color-surface-pad", "color-surface-pad-hover"]) {
+      expect(contrast(token("color-hw-label-accent"), token(bg)), `Mixer on ${bg}`).toBeGreaterThanOrEqual(4.5);
+      for (const icon of ["color-hw-play", "color-danger"]) expect(contrast(token(icon), token(bg)), `${icon} on ${bg}`).toBeGreaterThanOrEqual(3);
     }
   });
 
