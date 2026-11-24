@@ -22,8 +22,8 @@ interface Drag { mode: "move" | "resize"; step: number; pitch: number; x0: numbe
 /** Drum 1–4 are tracks 4–7 in the playhead store. */
 const DRUM_TRACKS = [4, 5, 6, 7] as const;
 
-export function PianoRoll({ projectId, version, track, pattern, data, onNoteSteps, onSelectStep, onLaneEdit }: {
-  projectId: string | null; version: number; track: TrackName; pattern: number; data: NotePatternData;
+export function PianoRoll({ projectId, version, follow, track, pattern, data, onNoteSteps, onSelectStep, onLaneEdit }: {
+  projectId: string | null; version: number; follow: boolean; track: TrackName; pattern: number; data: NotePatternData;
   onNoteSteps: (steps: NoteStepIn[], label: string) => void; onSelectStep: (s: number) => void; onLaneEdit: LaneEdit;
 }) {
   const playStep = usePlayStep(TRACK_NAMES.indexOf(track), pattern);
@@ -32,6 +32,22 @@ export function PianoRoll({ projectId, version, track, pattern, data, onNoteStep
   const [cursor, setCursor] = useState<{ step: number; pitch: number }>(() => ({ step: 1, pitch: all[0]?.note ?? 60 }));
   const rows = rollRange([...all.map((n) => n.note), cursor.pitch]);
   const top = rows[0] ?? 127;
+  const roll = useRef<HTMLDivElement | null>(null);
+  // Follow: keep the playhead and the notes it plays in view. The roll jumps a page at a time (as
+  // DAWs do) instead of scrolling smoothly, so following adds no motion.
+  useEffect(() => {
+    const el = roll.current;
+    if (!follow || playStep === null || !el) return;
+    const stepPx = tokenPx(el, "--size-roll-step"), keysPx = tokenPx(el, "--size-roll-keys"), rowPx = tokenPx(el, "--size-roll-row");
+    const x = (playStep - 1) * stepPx;
+    if (x < el.scrollLeft || x + stepPx > el.scrollLeft + el.clientWidth - keysPx) el.scrollLeft = x;
+    const ys = (notes.get(playStep) ?? []).map((n) => (top - n.note) * rowPx);
+    if (!ys.length) return;
+    const y0 = Math.min(...ys), y1 = Math.max(...ys) + rowPx;
+    if (y0 < el.scrollTop || y1 > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, (y0 + y1 - el.clientHeight) / 2);
+    // Only a new playhead position moves the view; edits while playing do not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [follow, playStep, pattern]);
   const here = (notes.get(cursor.step) ?? []).find((n) => n.note === cursor.pitch);
   const { firstStep, lastStep } = data.settings;
 
@@ -131,7 +147,7 @@ export function PianoRoll({ projectId, version, track, pattern, data, onNoteStep
 
   return (
     <section aria-label={`${track} pattern ${pattern} piano roll`} style={trackStyle(track)}>
-      <div className="roll" tabIndex={0} role="application" data-tip="Piano roll: arrows move the cursor, Enter or a double-click adds or removes a note, drag a note to move it or its end to resize it. Full keys below." aria-roledescription="piano roll" aria-label={`${track} pattern ${pattern} piano roll`}
+      <div ref={roll} className="roll" tabIndex={0} role="application" data-tip="Piano roll: arrows move the cursor, Enter or a double-click adds or removes a note, drag a note to move it or its end to resize it. Full keys below." aria-roledescription="piano roll" aria-label={`${track} pattern ${pattern} piano roll`}
         aria-describedby="roll-help" onKeyDown={onKeyDown} onScroll={(e) => { if (lane.current) lane.current.scrollLeft = e.currentTarget.scrollLeft; }}>
         <div className="roll-keys" aria-hidden="true">
           {rows.map((n) => <div key={n} className="roll-key" data-black={isBlackKey(n)}>{n % 12 === 0 ? noteName(n) : ""}</div>)}

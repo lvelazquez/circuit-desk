@@ -3,7 +3,7 @@
 // as on the device: in a scale, the bottom row climbs the scale from the root and the top row is
 // the same an octave up; in Chromatic, a piano (naturals below, sharps above).
 // Drum tracks: all 32 steps.
-import type { CSSProperties, KeyboardEvent } from "react";
+import { useEffect, type CSSProperties, type KeyboardEvent } from "react";
 import { Knob } from "./ui/Knob.tsx";
 import { useServiceData } from "./ui/useServiceData.ts";
 import type { NoteStepIn, TrackName } from "@circuit-desk/core-service";
@@ -17,6 +17,8 @@ import { usePlayStep, usePlayingPattern } from "./playheads.ts";
 export interface CircuitProps {
   projectId: string;
   version: number;
+  /** Follow playback: a note track's pads turn to the step page that is playing, as on the device. */
+  follow: boolean;
   /** Turn a macro knob of Synth 1 or 2: one undoable patch edit. */
   onMacro: (synth: 1 | 2, k: number, v: number) => void;
   summary: Summary;
@@ -114,6 +116,9 @@ function NoteGrid(p: CircuitProps & { data: NotePatternData }) {
   const keyAt = (cell: number): number | null => keyboardNote(p.scale, p.octave, cell - 16);
   const keys = Array.from({ length: 16 }, (_, k) => keyboardNote(p.scale, p.octave, k)).filter((k): k is number => k !== null);
   const selected = p.selectedStep !== null ? notes.get(p.selectedStep) ?? [] : [];
+  const playPage = playStep === null ? null : playStep > 16 ? 1 : 0;
+  const { follow, page, onPage } = p;
+  useEffect(() => { if (follow && playPage !== null && playPage !== page) onPage(playPage); }, [follow, playPage, page, onPage]);
 
   const pressKey = (key: number): void => {
     p.onCurrentNote(key);

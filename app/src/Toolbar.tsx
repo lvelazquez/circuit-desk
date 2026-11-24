@@ -24,6 +24,9 @@ export interface ToolbarProps {
   onExport: (kind: "midi" | "als" | "audio" | "syx") => void;
   /** Which synth Export › Synth patch writes. */
   patchSynth: 1 | 2;
+  /** Follow playback: the views show the pattern and steps that are playing. */
+  follow: boolean;
+  onFollow: (on: boolean) => void;
 }
 
 const GROUPS = ["Sequence", "Sound", "Song"] as const;
@@ -53,6 +56,9 @@ export function Toolbar(p: ToolbarProps) {
         <button type="button" className="btn" aria-pressed={player.playing} disabled={!p.projectId} aria-keyshortcuts="Meta+Enter"
           data-tip="Play or stop (⌘↩). Plays what the menu beside it says. Edits made while playing are heard at once."
           onClick={() => (player.playing ? player.stop() : void player.play())}>{player.playing ? "■ Stop" : "▶ Play"}</button>
+        <button type="button" className="btn" aria-pressed={p.follow} aria-keyshortcuts="Meta+L"
+          data-tip="Follow playback (⌘L): while playing, the piano roll, drum grid and pads show the pattern the current track is playing, and keep its playhead and notes in view. Off: they stay where you put them."
+          onClick={() => p.onFollow(!p.follow)}>Follow</button>
         <label className="visually-hidden" htmlFor="play-from">What plays</label>
         <select id="play-from" value={playFromValue(player.playFrom)} disabled={!p.projectId} onChange={(e) => player.choosePlayFrom(parsePlayFrom(e.target.value))}
           data-tip="What Play plays: the current pattern chains, the scene chain, one scene, or one pattern on every track. Changing it while playing starts the new part from its beginning.">

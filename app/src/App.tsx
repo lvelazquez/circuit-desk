@@ -20,7 +20,11 @@ import { ScenesView } from "./ScenesView.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 import { Toolbar } from "./Toolbar.tsx";
 import { Tooltips } from "./Tooltips.tsx";
-import { DRUM_NAMES, isDrum, isNoteTrack } from "./tracks.ts";
+import { DRUM_NAMES, TRACK_NAMES, isDrum, isNoteTrack } from "./tracks.ts";
+import { usePlayingPattern } from "./playheads.ts";
+import { remember, remembered } from "./storage.ts";
+
+const FOLLOW_KEY = "circuit-desk.follow";
 import { Loading } from "./ui/States.tsx";
 import { useKeyboardPlayer } from "./useKeyboardPlayer.ts";
 import { useMenuCommands } from "./useMenuCommands.ts";
@@ -46,6 +50,9 @@ export function App() {
   const [version, setVersion] = useState(0);
   /** Sounds view: the drums page instead of the current synth's patch. */
   const [drumsPage, setDrumsPage] = useState(false);
+  /** Follow: while playing, the views show the pattern and steps that are playing (remembered). */
+  const [follow, setFollowState] = useState(remembered(FOLLOW_KEY) !== "off");
+  const setFollow = useCallback((on: boolean) => { setFollowState(on); remember(FOLLOW_KEY, on ? "on" : "off"); }, []);
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
   const { status, fading, faded, setStatus, fail } = useStatus("Open a project from the library.");
@@ -56,6 +63,12 @@ export function App() {
   setNoteRoot(settings?.scale.root ?? 0);
 
   const player = usePlayer(projectId, version);
+  // Follow: when the current track's chain moves on to another pattern, show that pattern.
+  const playingPattern = usePlayingPattern(TRACK_NAMES.indexOf(track));
+  useEffect(() => {
+    if (!follow || !player.playing || playingPattern === null) return;
+    setPattern((p) => (p === playingPattern ? p : playingPattern));
+  }, [follow, player.playing, playingPattern]);
   const fw = useFirmware((f) => { bump(); setStatus({ text: `Firmware: ${f.name} ${f.versions}. ${f.description}` }); }, fail);
   const keySound = useKeySound(projectId, track, packChoice, version, fw.firmware, fail);
   const keys = useKeyboardPlayer(keySound, player.liveOutput);
@@ -133,6 +146,7 @@ export function App() {
     "next-view": () => setView((v) => stepView(v, 1)),
     "prev-view": () => setView((v) => stepView(v, -1)),
     "toggle-keys": () => { if (keySound) keys.setOn(!keys.on); },
+    "toggle-follow": () => setFollow(!follow),
     // Claude edited or opened a project (or chose the firmware) through the MCP link.
     changed: () => { bump(); fw.read(); void call("openProjects").then((o) => setProjectId((cur) => cur ?? o[0]?.id ?? null), fail); },
     play: () => { if (player.playing) player.stop(); else void player.play(); },
@@ -166,12 +180,12 @@ export function App() {
           onScene={(n, chains, label) => { if (projectId) void edit(label, () => call("setScene", projectId, n, chains)); }} />
       ) : <Loading />;
       case "circuit": return (
-        <CircuitView projectId={projectId!} version={version} onMacro={onMacro} scale={settings?.scale ?? null} onPlayPattern={(n) => player.choosePlayFrom({ kind: "pattern", n }, true)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
+        <CircuitView projectId={projectId!} version={version} follow={follow} onMacro={onMacro} scale={settings?.scale ?? null} onPlayPattern={(n) => player.choosePlayFrom({ kind: "pattern", n }, true)} summary={summary} track={track} pattern={pattern} data={data} selectedStep={step} page={page} octave={octave} currentNote={currentNote}
           onTrack={chooseTrack} onPattern={choosePattern} onSelectStep={setStep} onPage={setPage} onOctave={setOctave} onCurrentNote={setCurrentNote}
           onNoteSteps={onNoteSteps} onDrumStep={(s, velocity, label) => { if (isDrum(track)) onDrumSteps(track, [{ step: s, velocity }], label); }} />
       );
       case "editor": return (
-        <EditorPane projectId={projectId} version={version} track={track} pattern={pattern} data={data} drums={drums} drumSel={drumSel}
+        <EditorPane projectId={projectId} version={version} follow={follow} track={track} pattern={pattern} data={data} drums={drums} drumSel={drumSel}
           onTrack={chooseTrack} onPattern={choosePattern} onSelectStep={(s) => { setStep(s); setDrumSel(null); }} onSelectDrum={(d, s) => setDrumSel({ drum: d, step: s })}
           onNoteSteps={onNoteSteps} onDrumSteps={onDrumSteps} onLaneEdit={onLaneEdit} />
       );
@@ -180,7 +194,7 @@ export function App() {
 
   return (
     <div className="app">
-      <Toolbar summary={summary} projectId={projectId} scenes={scenes} view={view} onView={setView} player={player} keys={keys} keySound={keySound}
+      <Toolbar summary={summary} projectId={projectId} scenes={scenes} view={view} onView={setView} player={player} keys={keys} keySound={keySound} follow={follow} onFollow={setFollow}
         firmware={fw.firmware} onFirmware={fw.choose} onUndo={() => void cmd.undo()} onRedo={() => void cmd.undo(true)} patchSynth={patchSynth}
         onExport={(k) => void (k === "audio" ? cmd.exportAudio() : k === "syx" ? cmd.exportSyx() : cmd.exportTo(k))} />
       <div className="main" data-inspector={showInspector}>

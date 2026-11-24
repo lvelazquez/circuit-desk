@@ -8,6 +8,8 @@ import { NOTE_TRACKS } from "./tracks.ts";
 export interface EditorPaneProps {
   projectId: string | null;
   version: number;
+  /** Follow playback: the piano roll keeps the playhead and the playing notes in view. */
+  follow: boolean;
   track: TrackName;
   pattern: number;
   data: PatternData;
@@ -37,7 +39,7 @@ export function EditorPane(p: EditorPaneProps) {
           </select>
         </label>
       </div>
-      {p.data.kind === "notes" ? <PianoRoll projectId={p.projectId} version={p.version} track={p.track} pattern={p.pattern} data={p.data} onNoteSteps={p.onNoteSteps} onLaneEdit={p.onLaneEdit} onSelectStep={p.onSelectStep} />
+      {p.data.kind === "notes" ? <PianoRoll projectId={p.projectId} version={p.version} follow={p.follow} track={p.track} pattern={p.pattern} data={p.data} onNoteSteps={p.onNoteSteps} onLaneEdit={p.onLaneEdit} onSelectStep={p.onSelectStep} />
         : <p className="hint">Choose a Synth or MIDI track for the piano roll.</p>}
       <h2 className="visually-hidden">Drums</h2>
       <div className="stack-gap-xl">

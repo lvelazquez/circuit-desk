@@ -12,7 +12,7 @@ export type DeskResult<T> = { ok: true; value: T } | { ok: false; error: string 
 /** The views in menu order: View › 1–7 (⌘1–⌘7). Kept in step with app/src/views.ts. */
 export const MENU_VIEWS = ["Circuit", "Editor", "Scenes", "Sounds", "Mixer", "Pack", "Project"] as const;
 export type MenuCommand = "undo" | "redo" | "open" | "save-copy" | "export-midi" | "export-als" | "play" | "changed" | "export-audio" | "capture" | "export-syx"
-  | `view-${1 | 2 | 3 | 4 | 5 | 6 | 7}` | "next-view" | "prev-view" | "toggle-keys";
+  | `view-${1 | 2 | 3 | 4 | 5 | 6 | 7}` | "next-view" | "prev-view" | "toggle-keys" | "toggle-follow";
 
 export interface DeskBridge {
   call(method: DeskMethod, args: unknown[]): Promise<DeskResult<unknown>>;
