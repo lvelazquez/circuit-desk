@@ -2,6 +2,7 @@
 // app gets the bundled url from Vite ("@circuit-desk/engine/nova-worklet?worker&url").
 import { MIXER_PROCESSOR, NOVA_PROCESSOR, TAP_PROCESSOR, TAP_SECONDS, type MixerInit, type MixerMessage, type NovaInit, type NovaMessage, type TapDump, type TapRequest } from "./protocol.ts";
 import { NovaSynth } from "./synth.ts";
+import { novaTablesLoaded, setNovaTables } from "./tables.ts";
 import { ProjectMixer } from "../fx/mixer.ts";
 
 // The AudioWorkletGlobalScope, which TypeScript's libraries do not describe.
@@ -21,6 +22,7 @@ class NovaProcessor extends AudioWorkletProcessor {
   constructor(options?: { processorOptions?: NovaInit }) {
     super(options);
     const init = options?.processorOptions;
+    if (init?.tables && !novaTablesLoaded()) setNovaTables(init.tables);
     if (init?.values) this.synth.setValues(init.values);
     if (init?.bpm) this.synth.setBpm(init.bpm);
     if (init?.fx === false) this.synth.fx.enabled = false;

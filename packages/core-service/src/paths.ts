@@ -11,6 +11,8 @@ export interface DeskPaths {
   exports: string;
   /** The running app's local socket, which the MCP server uses when it is there. */
   socket: string;
+  /** Read-only: Novation Components' tables, by date (tools/components-tables.ts writes them). */
+  components?: string;
 }
 
 export function defaultPaths(env: NodeJS.ProcessEnv = process.env): DeskPaths {
@@ -20,6 +22,7 @@ export function defaultPaths(env: NodeJS.ProcessEnv = process.env): DeskPaths {
     copies: env["CIRCUIT_DESK_COPIES"] ?? join(home, "Copies"),
     exports: env["CIRCUIT_DESK_EXPORTS"] ?? join(home, "Exports"),
     socket: env["CIRCUIT_DESK_SOCKET"] ?? join(home, ".circuit-desk.sock"),
+    components: env["CIRCUIT_DESK_COMPONENTS"] ?? join(home, "Components-derived"),
   };
 }
 

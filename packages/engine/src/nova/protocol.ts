@@ -15,8 +15,11 @@ export type NovaMessage =
   /** The app's FX switch: false plays the voices without the patch's effects. */
   | { type: "fx"; on: boolean };
 
-/** What a Nova node starts with (AudioWorkletNode processorOptions). */
-export interface NovaInit { values?: Record<string, number>; fx?: boolean; bpm?: number }
+/**
+ * What a Nova node starts with (AudioWorkletNode processorOptions). `tables`: Components' wavetables
+ * and LFO shapes (tables.ts); the first node that brings them loads them for the whole worklet scope.
+ */
+export interface NovaInit { values?: Record<string, number>; fx?: boolean; bpm?: number; tables?: import("./tables.ts").NovaTableBytes | null }
 
 /** The project mixer (fx/mixer.ts): 8 stereo strips in, one stereo mix out. */
 export const MIXER_PROCESSOR = "circuit-desk-mixer";

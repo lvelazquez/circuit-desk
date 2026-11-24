@@ -149,7 +149,7 @@ describe("DSP units", () => {
   it("every oscillator wave stays within ±1.5", () => {
     for (let w = 0; w < 30; w++) {
       for (let i = 0; i < 200; i++) {
-        const v = oscSample({ wave: w, width: 0.5, morph: 0.5, transpose: 0, level: 1 }, i / 200, 0.01);
+        const v = oscSample({ wave: w, index: 64, interpolate: 64, transpose: 0, level: 1 }, i / 200, 0.01);
         expect(Math.abs(v), `wave ${w}`).toBeLessThan(1.5);
       }
     }

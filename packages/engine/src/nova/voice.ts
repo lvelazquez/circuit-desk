@@ -6,6 +6,7 @@ import { FIRST_WAVETABLE, PATCH_PARAMS, applyMacros } from "@circuit-desk/patch"
 import * as C from "./curves.ts";
 import { Envelope, Noise, Svf, type SvfMode, saw, sawPulse, sine, triangle } from "./dsp.ts";
 import { Lfo, lfoParams, type LfoParams } from "./lfo.ts";
+import { wavetableSample } from "./tables.ts";
 
 /** The device updates parameters per 32-frame block (NOTAS:3098). */
 export const BLOCK = 32;
@@ -30,7 +31,18 @@ export const APPLY_MACROS = true;
 /** How far envelope 2 at full depth moves the cutoff, semitones (a guess, like the curves). */
 const ENV2_RANGE = 60;
 
-export interface OscParams { wave: number; width: number; morph: number; transpose: number; level: number }
+export interface OscParams {
+  wave: number;
+  /** Stored Pulse Width/Index, 0–127 (64 = centre); the matrix's Osc PW destinations add to it per block. */
+  index: number;
+  /** Stored Wave Interpolate, 0–127. */
+  interpolate: number;
+  transpose: number;
+  level: number;
+}
+
+/** Pulse width of wave 12 (Pulse Width) at an index of 0–127: the high part of the cycle. */
+export const pulseWidth = (index: number): number => 0.05 + 0.9 * (index / 127);
 
 export interface NovaParams {
   polyphony: 0 | 1 | 2;
@@ -82,8 +94,8 @@ export function novaParams(raw: Readonly<Record<string, number>>, macroPositions
   // "LivingDead" in 00_Delorean Dream-Tracks/40_SESSION: Osc 1 at 16 Hz). To confirm on a device.
   const osc = (n: 1 | 2): OscParams => ({
     wave: g(`osc${n}.wave`),
-    width: 0.05 + 0.9 * (g(`osc${n}.pulseWidth`) / 127),
-    morph: g(`osc${n}.waveInterpolate`) / 127,
+    index: g(`osc${n}.pulseWidth`),
+    interpolate: g(`osc${n}.waveInterpolate`),
     transpose: (g(`osc${n}.semitones`) - 64) + (g(`osc${n}.cents`) - 64) / 100,
     level: C.level(g(`mixer.osc${n}`)),
   });
@@ -127,7 +139,8 @@ export interface ModState { values: Float64Array }
 
 /**
  * Mod matrix sums for one voice at block rate. Sources: direct, velocity, keyboard, the LFOs (6/8
- * unipolar "+", 7/9 bipolar "±") and the three envelopes; 1–3 are undocumented and read 0. Two
+ * unipolar "+", 7/9 bipolar "±") and the three envelopes; 1–3 (mod wheel, aftertouch, expression:
+ * Components never stores them) read 0. Two
  * sources multiply; source 2 = direct is 1.
  */
 export function modSums(p: NovaParams, velocity: number, note: number, env: readonly number[], out: Float64Array, lfo: readonly number[] = [0, 0]): void {
@@ -155,18 +168,24 @@ export function defaultValues(): Record<string, number> {
   return Object.fromEntries(PATCH_PARAMS.map((p) => [p.id, p.default]));
 }
 
-/** One oscillator sample. Wavetables (14–29) are placeholders until real tables exist (plan D-1). */
-export function oscSample(o: OscParams, phase: number, dt: number): number {
+/**
+ * One oscillator sample at `index` (0–127: the stored Pulse Width/Index plus modulation). Wavetables
+ * (14–29) play Components' tables when they are loaded (tables.ts); without them, Sine Table plays a
+ * sine and the others a stand-in that interpolate sweeps from saw to square.
+ */
+export function oscSample(o: OscParams, phase: number, dt: number, index = o.index): number {
   const w = o.wave;
   if (w === 0) return sine(phase);
   if (w === 1) return triangle(phase);
   if (w === 2) return saw(phase, dt);
   if (w >= 3 && w <= 11) return sawPulse(phase, dt, (12 - w) / 10);
-  if (w === 12) return sawPulse(phase, dt, o.width);
+  if (w === 12) return sawPulse(phase, dt, pulseWidth(index));
   if (w === 13) return sawPulse(phase, dt, 0.5);
+  const t = wavetableSample(w, index, o.interpolate, phase, dt);
+  if (t !== null) return t;
   if (w === FIRST_WAVETABLE) return sine(phase);
-  // Placeholder for the other wavetables: interpolate sweeps from saw to square.
-  return (1 - o.morph) * saw(phase, dt) + o.morph * sawPulse(phase, dt, 0.5);
+  const morph = o.interpolate / 127;
+  return (1 - morph) * saw(phase, dt) + morph * sawPulse(phase, dt, 0.5);
 }
 
 const FILTER_STAGES: readonly { mode: SvfMode; stages: 1 | 2 }[] = [
@@ -276,6 +295,8 @@ export class Voice {
       midiHz(pitch + p.osc[0].transpose + both + (mod[1] ?? 0) * MOD_PITCH_RANGE) / sr,
       midiHz(pitch + p.osc[1].transpose + both + (mod[2] ?? 0) * MOD_PITCH_RANGE) / sr,
     ];
+    // Osc PW destinations (5, 6) move the pulse width or wavetable index, in the 0–127 domain.
+    const idx1 = raw(p.osc[0].index, 5), idx2 = raw(p.osc[1].index, 6);
     const lv1 = unit(p.osc[0].level, 7), lv2 = unit(p.osc[1].level, 8);
     const noiseLv = unit(p.noise, 9), ringLv = unit(p.ring, 10);
     const amp = VOICE_GAIN * velScale(p.env[0]!.velocity) * p.postFx;
@@ -287,8 +308,8 @@ export class Voice {
       const e1 = this.env[0]!.next();
       this.env[1]!.next();
       this.env[2]!.next();
-      const s1 = oscSample(p.osc[0], this.phase[0]!, dt[0]!);
-      const s2 = oscSample(p.osc[1], this.phase[1]!, dt[1]!);
+      const s1 = oscSample(p.osc[0], this.phase[0]!, dt[0]!, idx1);
+      const s2 = oscSample(p.osc[1], this.phase[1]!, dt[1]!, idx2);
       for (let k = 0; k < 2; k++) {
         let ph = this.phase[k]! + dt[k]!;
         if (ph >= 1) ph -= 1;

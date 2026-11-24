@@ -9,7 +9,9 @@ import { NovaSynth } from "@circuit-desk/engine";
 const file = process.argv[2];
 if (!file) throw new Error("usage: mix-levels.ts <project.ncs>");
 const b = new Uint8Array(readFileSync(file));
+import { useComponentsTables } from "./lib/nova-tables.ts";
 const SR = 48_000;
+console.error(useComponentsTables());
 const db = (x: number): string => (x > 0 ? `${(20 * Math.log10(x)).toFixed(1)} dBFS` : "silent");
 
 for (const s of [0, 1]) {

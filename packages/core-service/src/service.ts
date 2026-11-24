@@ -8,6 +8,7 @@ import * as X from "@circuit-desk/export";
 import * as P from "@circuit-desk/patch";
 import { checkWritable, defaultPaths, type DeskPaths } from "./paths.ts";
 import { DEFAULT_FIRMWARE, FIRMWARES, firmwareProfile, type FirmwareId, type FirmwareProfile } from "./firmware.ts";
+import { loadComponentsTables, type ComponentsTables } from "./components-tables.ts";
 
 export interface PackPatchOut { record: number; name: string; category: string; ownSynthData: boolean }
 export interface PatchOut {
@@ -435,6 +436,14 @@ export class ProjectService {
   /** Changes project settings (any subset). Fields are `partial` (see settings): edits go to copies only. */
   setSettings(id: string, e: N.SettingsEdit): N.ChangedRange[] {
     return this.edit(id, (p) => N.writeSettings(p, e));
+  }
+
+  private tables: ComponentsTables | null | undefined;
+
+  /** Components' wavetables and LFO shapes for the Nova voice, or null when none are saved (read once). */
+  novaTables(): ComponentsTables | null {
+    if (this.tables === undefined) this.tables = loadComponentsTables(this.paths.components);
+    return this.tables;
   }
 
   synthPatches(id: string): { synth1: number[]; synth2: number[] } {

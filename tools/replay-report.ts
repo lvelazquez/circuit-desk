@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { NovaSynth, encodeWav } from "@circuit-desk/engine";
 import { parsePatch } from "@circuit-desk/patch";
+import { useComponentsTables } from "./lib/nova-tables.ts";
 
 interface ReportEvent { offset: number; source: "player" | "keys"; track: number | null; bytes: number[]; route?: string; sound?: string }
 interface Report {
@@ -24,6 +25,7 @@ if (!dir) throw new Error('usage: replay-report.ts "<report folder>"');
 const report = JSON.parse(readFileSync(join(dir, "report.json"), "utf8")) as Report;
 if (report.kind !== "circuit-desk sound report") throw new Error("not a Circuit Desk sound report");
 const SR = report.audio.sampleRate, frames = report.audio.frames;
+console.error(useComponentsTables());
 
 /** Which patch an event plays, or null when it is not a Nova sound. */
 function patchFor(e: ReportEvent): { key: string; bytes: number[] } | null {

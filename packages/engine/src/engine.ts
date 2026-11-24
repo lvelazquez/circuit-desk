@@ -9,6 +9,7 @@ import { STAND_IN_PATCHES, Synth } from "./synth.ts";
 import type { Instrument } from "./types.ts";
 import { NovaInstrument, loadNovaWorklet } from "./nova/instrument.ts";
 import { MIXER_PROCESSOR, type MixerInit, type MixerMessage } from "./nova/protocol.ts";
+import type { NovaTableBytes } from "./nova/tables.ts";
 import type { SoundSettings } from "@circuit-desk/ncs";
 import { SOFTCLIP_RANGE, softClipCurve } from "./softclip.ts";
 
@@ -73,8 +74,11 @@ export class PreviewEngine {
    * Plays Synth 1 and 2 with the Nova voice and the project's own patches (340 B each; null keeps
    * the stand-in). `moduleUrl` is the bundled nova worklet. Returns the patch names now playing.
    */
-  /** `keepMacros`: the patches are edits of the ones playing (keep the automation's macro positions). */
-  async useNova(moduleUrl: string, patches: readonly (Uint8Array | null)[], keepMacros = false): Promise<string[]> {
+  /**
+   * `keepMacros`: the patches are edits of the ones playing (keep the automation's macro positions).
+   * `tables`: Components' wavetables and LFO shapes, if found (null keeps the voice's stand-ins).
+   */
+  async useNova(moduleUrl: string, patches: readonly (Uint8Array | null)[], keepMacros = false, tables: NovaTableBytes | null = null): Promise<string[]> {
     await loadNovaWorklet(this.ctx, moduleUrl);
     const names: string[] = [];
     for (const t of [0, 1]) {
@@ -83,7 +87,7 @@ export class PreviewEngine {
       if (strip.instrument instanceof NovaInstrument) strip.instrument.setPatch(patch, keepMacros);
       else {
         strip.instrument.dispose();
-        strip.instrument = new NovaInstrument(this.ctx, strip.gain, patch, { fx: this.fxOn, bpm: this.bpm });
+        strip.instrument = new NovaInstrument(this.ctx, strip.gain, patch, { fx: this.fxOn, bpm: this.bpm, tables });
       }
       names.push((strip.instrument as NovaInstrument).name);
     }

@@ -7,16 +7,21 @@
 // - Behaviour of phase, key sync, common sync, one shot, slew, fade modes and delay trigger:
 //   UltraNova User Guide pp. 23–25 and 40–41 (official, same Nova engine; not checked on a
 //   Circuit).
-// - Sync values: the UltraNova's 36-entry sync table (official), assumed the same on the Circuit
-//   because the range (0–35) matches.
+// - Sync values: the UltraNova's 36-entry sync table (official); Novation Components' Circuit
+//   Tracks editor labels the same 35 values, "1/32 T" to "64 Beats" (checked 2026-11-24).
+// - Shapes 6–37 (Piano envelope, Sequence 1–7, Alternative 1–8, the melodic shapes): Novation
+//   Components' LFO tables when they are loaded (tables.ts), read as they are, step for step. Sine,
+//   triangle, sawtooth and square match those tables' phase and direction, so they stay formulas;
+//   Random S/H and Time S/H stay random (the tables hold one snapshot of each).
 //
 // Approximations, until the firmware oracle (plan D-6) or a device measurement replaces them:
 // - The rate curve (curves.ts lfoRateHz), the delay time curve and the slew time.
-// - The step values of Sequence 1–7, Alternative 1–8 and the melodic shapes (22–37): Novation
-//   describes them ("held for a sixteenth of the cycle", "jump between min and max", melodic
-//   sequences meant for pitch at depth ±30/±36) but publishes no values. The tables below follow
-//   those descriptions and the shapes' names; they are not the device's.
+// - The melodic shapes' interval size (MELODIC_SPAN): Components scales each table to fill its
+//   display, so the steps' order and timing are exact but semitones are fitted (see the list).
+// - Without the tables, the step values below: they follow Novation's descriptions ("held for a
+//   sixteenth of the cycle", "jump between min and max") and the shapes' names, not the device.
 import * as C from "./curves.ts";
+import { lfoTableLevel, lfoTableValue } from "./tables.ts";
 
 /** UltraNova sync table: 0 = off, then the cycle length in beats (quarter notes). */
 export const LFO_SYNC_BEATS: readonly number[] = [
@@ -112,6 +117,31 @@ const MELODIC: readonly (readonly number[])[] = [
  */
 export const MELODIC_SEMITONE = 63 / 36 / 12;
 
+/**
+ * Semitones from the lowest to the highest step of each melodic shape (22–37), to read Components'
+ * tables (each scaled to its own full height) as pitch. "Fit": the span that puts every step within
+ * 0.1 semitone of a whole one (0.17 for Dec minor) and reads as the shape's name; "guess": the steps
+ * are evenly spaced or fit no span cleanly, so the size follows the name. To check on a device.
+ */
+export const MELODIC_SPAN: readonly number[] = [
+  11, // Chromatic: 0…11 (fit)
+  11, // Chromatic 16: 0…11, then down 10…7 (fit)
+  12, // Major: 0 2 4 5 7 9 11 12 (fit)
+  11, // Major 7: 0 4 7 11 (fit)
+  10, // Minor 7: 0 3 7 10 (fit)
+  10, // Min arp 1: 0 7 3 7 3 10 7 3 (fit)
+  10, // Min arp 2: 0 3 7 3 7 10 3 7 (fit)
+  11, // Diminished: 0 2 3 5 6 8 9 11 (fit)
+  12, // Dec minor: 7 5 3 2 0 12 10 8 (fit, 0.17)
+  21, // Minor 3rd: eight even steps; 3 semitones each by the name (guess; 1 each also fits)
+  6, // Pedal: 0 5 0 6 0 1 0 3, the closest span (guess)
+  16, // 4ths: 0 5 10 15 1 6 11 16 (fit)
+  17, // 4ths x12: even rises of about 5 between drops; fits no span cleanly (guess)
+  9, // 1625 maj: 0 9 2 7, I vi ii V (fit)
+  8, // 1625 min: 0 8 2 7 (fit)
+  7, // 2511: 2 7 0 0, ii V I I (fit)
+];
+
 const FIRST_SEQUENCE = 7, FIRST_ALTERNATIVE = 14, FIRST_MELODIC = 22;
 
 /** One LFO. Bipolar output, −1…1 (melodic shapes go past 1: they are pitch steps). */
@@ -205,9 +235,16 @@ export class Lfo {
       // Time S/H: min or max, each held for a random time. Here: the held value's sign, with the
       // switch point inside the cycle moved by the next value.
       case 5: return ph < 0.5 + 0.45 * this.holdNext ? (this.hold >= 0 ? 1 : -1) : (this.holdNext >= 0 ? 1 : -1);
-      // Piano envelope: "a curved sawtooth": a fast exponential fall from the top.
-      case 6: return 2 * Math.exp(-5 * ph) - 1;
+      // Piano envelope: the table, else "a curved sawtooth": a fast exponential fall from the top.
+      case 6: return lfoTableValue(6, ph) ?? 2 * Math.exp(-5 * ph) - 1;
       default: break;
+    }
+    if (wave >= FIRST_MELODIC) {
+      const level = lfoTableLevel(wave, ph);
+      if (level !== null) return Math.round(level * MELODIC_SPAN[wave - FIRST_MELODIC]!) * MELODIC_SEMITONE;
+    } else {
+      const v = lfoTableValue(wave, ph);
+      if (v !== null) return v;
     }
     const k = Math.min(15, Math.floor(ph * 16));
     if (wave >= FIRST_SEQUENCE && wave < FIRST_ALTERNATIVE) return SEQUENCES[wave - FIRST_SEQUENCE]![k]!;

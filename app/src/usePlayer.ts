@@ -98,7 +98,7 @@ export function usePlayer(projectId: string | null, version: number) {
     // Synth 1/2 play their own patches through the Nova voice (re-read each time: edits may change them).
     const nova = await novaRender(projectId);
     // An edit while playing keeps the macro positions the automation has set.
-    await engine.current.useNova(nova.moduleUrl, nova.patches, editWhilePlaying);
+    await engine.current.useNova(nova.moduleUrl, nova.patches, editWhilePlaying, nova.tables ?? null);
     // Levels, pans, sidechains, drum knobs, reverb and delay, as the project stores them.
     await engine.current.useSound(nova.moduleUrl, await call("soundSettings", projectId), a.bpm);
     engine.current.setFx(fxRef.current);

@@ -8,7 +8,9 @@ import { NovaSynth } from "@circuit-desk/engine";
 const root = process.argv[2];
 if (!root) throw new Error("usage: nova-levels.ts <Tracks dir>");
 const PATCH0 = 0x26d14;
+import { useComponentsTables } from "./lib/nova-tables.ts";
 const SR = 48_000;
+console.error(useComponentsTables());
 
 const walk = (d: string, re: RegExp, out: string[] = []): string[] => {
   for (const n of readdirSync(d).sort()) {

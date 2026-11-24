@@ -22,7 +22,7 @@ export class NovaInstrument implements Instrument {
   name: string;
 
   /** `patch` is the 340 B synth patch. The worklet module must be loaded first. */
-  constructor(ctx: BaseAudioContext, out: AudioNode, patch: Uint8Array, opts: { fx?: boolean; bpm?: number } = {}) {
+  constructor(ctx: BaseAudioContext, out: AudioNode, patch: Uint8Array, opts: Omit<NovaInit, "values"> = {}) {
     // Stereo: the patch's chorus. The patch, FX switch and tempo go with the node, so an offline
     // render has them from the first frame.
     const processorOptions: NovaInit = { values: parsePatch(patch).values, ...opts };

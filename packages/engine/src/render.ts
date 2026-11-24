@@ -5,6 +5,7 @@ import type { Arrangement } from "@circuit-desk/export";
 import { Schedule } from "@circuit-desk/playback";
 import { PreviewEngine, wavLoader } from "./engine.ts";
 import type { SoundSettings } from "@circuit-desk/ncs";
+import type { NovaTableBytes } from "./nova/tables.ts";
 
 export const RENDER_RATE = 48_000;
 /** Seconds after the last step, so releases and sample tails are kept. */
@@ -12,8 +13,11 @@ export const RENDER_TAIL = 1.5;
 /** Longest render, seconds: an arrangement is never longer than 16 scenes of long chains. */
 export const RENDER_MAX = 20 * 60;
 
-/** Synth 1/2 through the Nova voice: the bundled worklet url and the project's two patches. */
-export interface NovaRender { moduleUrl: string; patches: readonly (Uint8Array | null)[] }
+/**
+ * Synth 1/2 through the Nova voice: the bundled worklet url, the project's two patches and, when
+ * found, Components' wavetables and LFO shapes.
+ */
+export interface NovaRender { moduleUrl: string; patches: readonly (Uint8Array | null)[]; tables?: NovaTableBytes | null }
 
 export async function renderOffline(
   a: Arrangement, drums: readonly number[], fetchSample: (index: number) => Promise<Uint8Array>, nova?: NovaRender,
@@ -26,7 +30,7 @@ export async function renderOffline(
   await engine.loadDrums(drums, flips, wavLoader(ctx, fetchSample));
   // The FX switch first: the worklet nodes made below take it (and the settings) at construction.
   engine.setFx(fx);
-  if (nova) await engine.useNova(nova.moduleUrl, nova.patches);
+  if (nova) await engine.useNova(nova.moduleUrl, nova.patches, false, nova.tables ?? null);
   // Effects (levels, pans, sidechains, drum knobs, reverb, delay) need the worklet module too.
   if (nova && sound) await engine.useSound(nova.moduleUrl, sound, a.bpm);
   const s = new Schedule(a, { loop: false, lookahead: Number.POSITIVE_INFINITY });

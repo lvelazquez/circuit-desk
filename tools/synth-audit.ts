@@ -7,7 +7,9 @@ import { NovaSynth } from "@circuit-desk/engine";
 import { PATCH0, PATCH_SIZE, SYNC_RATE_TICKS, TEMPO_AT, openProject, readNotePattern } from "@circuit-desk/ncs";
 import { parsePatch } from "@circuit-desk/patch";
 
+import { useComponentsTables } from "./lib/nova-tables.ts";
 const SR = 48_000;
+console.error(useComponentsTables());
 const root = process.argv[2];
 if (!root) throw new Error("usage: synth-audit.ts <folder that contains Tracks/> [--list]");
 const list = process.argv.includes("--list");

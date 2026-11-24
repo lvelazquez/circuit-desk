@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { NovaInstrument } from "@circuit-desk/engine";
 import { initPatchBytes as initPatchBytesForPreview } from "@circuit-desk/patch";
-import { appOutput, audioContext, loadNovaWorklet } from "./audio.ts";
+import { appOutput, audioContext, loadNovaWorklet, novaTables } from "./audio.ts";
 import { isFormControl } from "./storage.ts";
 import { logEvent } from "./capture.ts";
 import { DEFAULT_OCTAVE, KEY_NOTES, MAX_OCTAVE, MIN_OCTAVE, keyCode, keyNote } from "./keymap.ts";
@@ -37,7 +37,7 @@ export function useKeyboardPlayer(sound: KeySound | null, output: () => MIDIOutp
       const ctx = audioContext();
       await loadNovaWorklet(ctx);
       const patch = sound?.patch ?? initPatchBytesForPreview();
-      if (!inst.current) inst.current = new NovaInstrument(ctx, await appOutput(), patch);
+      if (!inst.current) inst.current = new NovaInstrument(ctx, await appOutput(), patch, { tables: await novaTables() });
       else inst.current.setPatch(patch);
       return inst.current;
     } catch (e) { setError(`Preview: ${(e as Error).message}`); return null; }
