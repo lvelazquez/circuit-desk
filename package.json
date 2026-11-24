@@ -1,6 +1,7 @@
 {
   "name": "circuit-desk",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Desktop project editor for the Novation Circuit Tracks",
   "workspaces": [

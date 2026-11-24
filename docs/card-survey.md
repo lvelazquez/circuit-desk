@@ -1,6 +1,6 @@
 # Card survey
 
-Source: `/Users/lvelazquez/Circuit Desk/Card copy/2026-11-19`. Projects read: **152**. Counts only; no project contents.
+Source: a copy of the author's SD card (`~/Circuit Desk/Card copy/2026-11-19`). Projects read: **152**. Counts only; no project contents.
 
 ## Files
 
